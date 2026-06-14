@@ -309,6 +309,72 @@ input[type=range]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── pentair-faithful Spa card ──────────── */
+.spa-temp-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+.spa-temp-val {
+  font-size: 52px; font-weight: 700; color: var(--label);
+  letter-spacing: -2px; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.spa-temp-deg { font-weight: 400; opacity: .5; }
+.spa-heat-info {
+  font-size: 13px; color: var(--orange); font-weight: 500;
+  margin-top: 4px; margin-bottom: 2px;
+}
+/* segmented Off / Spa / Jets pills */
+.spa-seg { display: flex; gap: 8px; margin-top: 12px; margin-bottom: 4px; }
+.spa-seg-btn {
+  padding: 9px 22px; border-radius: 22px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  color: var(--label2);
+  font-size: 14px; font-weight: 600; font-family: inherit;
+  cursor: pointer; transition: background .2s, color .2s, border-color .2s, transform .12s ease-out;
+}
+.spa-seg-btn:active { transform: scale(.95); }
+.spa-seg-btn.active {
+  background: rgba(20,184,166,.18);
+  border-color: rgba(20,184,166,.35);
+  color: #14b8a6;
+}
+.spa-seg-btn[disabled] { opacity: .5; cursor: default; }
+/* tappable setpoint bar */
+.spa-set-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px; padding: 12px 16px; margin-top: 12px;
+  cursor: pointer; transition: background .2s;
+}
+.spa-set-row:active { background: rgba(255,255,255,.08); }
+.spa-set-label { font-size: 15px; color: var(--label2); }
+.spa-set-val {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 600; color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+.spa-set-arrow { color: var(--label2); font-size: 14px; }
+/* light gallery divider label inside the spa card */
+.spa-light-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .6px;
+  color: var(--label2); text-transform: uppercase;
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+/* spa setpoint bottom sheet stepper */
+.spa-sheet-val { font-size: 68px; font-weight: 700; color: var(--label); letter-spacing: -3px; line-height: 1; }
+.spa-sheet-deg { font-size: 26px; color: var(--label2); font-weight: 400; }
+.spa-sheet-steps { display: flex; justify-content: center; gap: 28px; margin: 20px 0 24px; }
+.spa-sheet-step {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--fill); border: 1px solid rgba(255,255,255,.12);
+  color: var(--label); font-size: 26px; font-weight: 300; line-height: 1;
+  cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+}
+.spa-sheet-step:active { transform: scale(.9); background: var(--track); }
+.spa-sheet-step[disabled] { opacity: .4; cursor: default; }
+
 /* pentair-style color swatch gallery */
 .swatches {
   display: flex; gap: 12px; margin-top: 12px;
@@ -787,14 +853,121 @@ function GateHoldSheet({ control, command, onClose }) {
   );
 }
 
+// ── Spa setpoint bottom sheet ──────────────────────────────────
+// Big setpoint value with −/+ steppers (±1, clamped to range) and
+// Cancel / Set. "Set" sends {setpoint:n}; live value seeds it.
+function SpaSetpointSheet({ control, command, onClose }) {
+  const [min, max] = control.range || [40, 104];
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+  const [val, setVal] = useState(clamp(control.value ?? min));
+  const adj = (d) => setVal((v) => clamp(v + d));
+  const set = () => { command(control, { setpoint: val }); onClose(); };
+  return (
+    <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) onClose(); }}>
+      <div className="sheet">
+        <div className="sheet-title">Spa Temperature</div>
+        <div style={{ textAlign: "center", margin: "8px 0 4px" }}>
+          <span className="spa-sheet-val">{val}</span>
+          <span className="spa-sheet-deg">°</span>
+        </div>
+        <div className="spa-sheet-steps">
+          <button className="spa-sheet-step" disabled={val <= min}
+                  aria-label="Decrease" onClick={() => adj(-1)}>−</button>
+          <button className="spa-sheet-step" disabled={val >= max}
+                  aria-label="Increase" onClick={() => adj(1)}>+</button>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="sheet-row" style={{ marginTop: 0 }} onClick={onClose}>Cancel</button>
+          <button className="sheet-row" style={{ marginTop: 0, background: "rgba(100,210,255,.22)", color: "var(--cyan)" }}
+                  onClick={set}>Set</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── pentair-faithful Spa card ──────────────────────────────────
+// Replicates the pentair spa card: status badge, big 52px temp, heat ETA,
+// Off/Spa/Jets teal pills, tappable Setpoint → bottom sheet — and below it,
+// inside the same card, the pool light color swatch gallery.
+function SpaCard({ title, controls, command }) {
+  const [sheet, setSheet] = useState(false);
+  const byId = (id) => controls.find((c) => c.id === id);
+  const spa = byId("spa") || controls.find((c) => c.kind === "segmented");
+  const setpoint = byId("spa_setpoint") || controls.find((c) => c.kind === "setpoint");
+  const lights = byId("lights") || controls.find((c) => c.kind === "modes");
+
+  // Status badge from the spa control.
+  const status = (spa && spa.status) || "";
+  const mode = (spa && (spa.mode || "").toLowerCase()) || "off";
+  let badge;
+  if (/heat/i.test(status)) badge = { text: "Heating", tone: "orange" };
+  else if (!spa || mode === "off" || !spa.on) badge = { text: "Off", tone: "gray" };
+  else badge = { text: "On", tone: "teal" };
+
+  // Big temperature (spa.value); ETA part of status when heating ("… · ETA").
+  const temp = spa && spa.value != null ? spa.value : null;
+  const heating = /heat/i.test(status);
+  const eta = heating && status.indexOf("· ") !== -1
+    ? status.slice(status.indexOf("· ") + 2)
+    : "";
+
+  const segOpts = (spa && spa.options) || ["off", "spa", "jets"];
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const spaOnline = !spa || spa.online;
+
+  const spVal = setpoint && setpoint.value != null ? setpoint.value : null;
+
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <div className="card-title">{title}</div>
+        <span className={"badge " + badge.tone}>{badge.text}</span>
+      </div>
+
+      <div className="spa-temp-row">
+        <span className="spa-temp-val">
+          {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
+        </span>
+      </div>
+      {eta ? <div className="spa-heat-info">{eta}</div> : null}
+
+      <div className="spa-seg">
+        {segOpts.map((opt) => {
+          const key = opt.toLowerCase();
+          return (
+            <button key={opt} className={"spa-seg-btn" + (key === mode ? " active" : "")}
+                    disabled={!spaOnline}
+                    onClick={() => command(spa, { state: key })}>{cap(key)}</button>
+          );
+        })}
+      </div>
+
+      {setpoint ? (
+        <div className="spa-set-row" onClick={() => setpoint.online && setSheet(true)}>
+          <span className="spa-set-label">Setpoint</span>
+          <span className="spa-set-val">
+            {spVal != null ? spVal + "°F" : "--°F"} <span className="spa-set-arrow">›</span>
+          </span>
+        </div>
+      ) : null}
+
+      {lights ? (
+        <React.Fragment>
+          <div className="spa-light-label">Light</div>
+          <ModesRow control={lights} command={command} bare />
+        </React.Fragment>
+      ) : null}
+
+      {sheet && setpoint ? (
+        <SpaSetpointSheet control={setpoint} command={command} onClose={() => setSheet(false)} />
+      ) : null}
+    </div>
+  );
+}
+
 // ── Cards ──────────────────────────────────────────────────────
 const DOMAIN_TITLE = { gate: "Gate", pool: "Pool", fans: "Fans" };
-
-// Title-case a mode/scene name ("american" → "American").
-function titleCase(s) {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 // Derive a small status badge ({ text, tone }) for a section card from its
 // primary control. `controls` are the LIVE controls for this section.
@@ -809,29 +982,13 @@ function sectionBadge(title, controls) {
                  controls.find((c) => c.domain === "gate");
     if (!door) return null;
     const status = door.status || "";
+    // Wording is now "Closed"/"Open"/"Held…": Closed → green, Open/Held → amber.
     let tone = "orange";
-    if (/lock/i.test(status)) tone = "green";
+    if (/closed/i.test(status) || /lock/i.test(status)) tone = "green";
     return status ? { text: status, tone } : null;
   }
 
-  // Spa → short status from the segmented control.
-  if (t.indexOf("spa") !== -1) {
-    const spa = byKind("segmented") || controls.find((c) => c.id === "spa");
-    if (!spa) return null;
-    const status = spa.status || "";
-    const mode = (spa.mode || "").toLowerCase();
-    if (/heat/i.test(status)) return { text: "Heating", tone: "orange" };
-    if (mode === "off" || !spa.on) return { text: "Off", tone: "gray" };
-    return { text: "On", tone: "teal" };
-  }
-
-  // Pool Light → current mode name (title-cased), or "Off".
-  if (t.indexOf("light") !== -1 && t.indexOf("pool") !== -1) {
-    const m = byKind("modes") || controls.find((c) => c.id === "lights");
-    if (!m) return null;
-    if (m.on && m.mode) return { text: titleCase(m.mode), tone: "teal" };
-    return { text: "Off", tone: "gray" };
-  }
+  // (Spa + Pool Light render as a custom SpaCard, which computes its own badge.)
 
   // Fans → optional All Fans status (e.g. "2 of 4").
   if (t.indexOf("fan") !== -1) {
@@ -845,19 +1002,25 @@ function sectionBadge(title, controls) {
 
 // One pentair-style card per configured section.
 function SectionCard({ title, controls, command }) {
-  const badge = sectionBadge(title, controls);
   const tl = (title || "").toLowerCase();
-  const isLightCard = tl.indexOf("light") !== -1 && tl.indexOf("pool") !== -1;
+
+  // Spa → fully custom pentair-faithful card (temp + Off/Spa/Jets + setpoint
+  // sheet + merged light gallery). Triggered by the "Spa" title or a pool:spa
+  // control in the section.
+  const isSpaCard = tl.indexOf("spa") !== -1 ||
+    controls.some((c) => c.domain === "pool" && c.id === "spa");
+  if (isSpaCard) {
+    return <SpaCard title={title} controls={controls} command={command} />;
+  }
+
+  const badge = sectionBadge(title, controls);
   // In the Gate summary card the header (title) + badge (lock state) already
   // convey name + status, so a lone gate door renders bare (buttons only).
   const isGateCard = tl.indexOf("gate") !== -1;
   const singleTristate = controls.length === 1 && controls[0].kind === "tristate";
 
   const rows = controls.map((c) => {
-    // In the Pool Light card, the header already conveys name + mode, so the
-    // ModesRow is rendered gallery-only (no redundant label line).
-    const bare = (isLightCard && c.kind === "modes") ||
-                 (isGateCard && singleTristate && c.kind === "tristate");
+    const bare = isGateCard && singleTristate && c.kind === "tristate";
     return (
       <ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome bare={bare} />
     );
