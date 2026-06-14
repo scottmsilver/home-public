@@ -799,8 +799,7 @@ function TristateRow({ control, command, iconNode, bare }) {
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
       )}
-      <div className="gate-open-label" style={bare ? { marginTop: 0 } : undefined}>Open</div>
-      <div className="gate-actions">
+      <div className="gate-actions" style={bare ? { marginTop: 0 } : undefined}>
         <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!control.online}
                 onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
         <button className={"gate-btn" + (mode === "timed" ? " held" : "")} disabled={!control.online}
