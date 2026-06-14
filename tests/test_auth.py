@@ -53,6 +53,12 @@ def test_expired_session_rejected(tmp_path):
     assert g.verify_session(token) is None
 
 
+def test_session_without_exp_rejected(tmp_path):
+    g = make_gate(tmp_path)
+    token = jwt.encode({"email": "you@gmail.com"}, "ss", algorithm="HS256")
+    assert g.verify_session(token) is None
+
+
 def test_session_signed_with_wrong_secret_rejected(tmp_path):
     g = make_gate(tmp_path)
     token = jwt.encode({"email": "you@gmail.com"}, "WRONG", algorithm="HS256")
