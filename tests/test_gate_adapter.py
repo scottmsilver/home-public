@@ -67,20 +67,29 @@ DEVICES = [
 @responses.activate
 def test_snapshot_one_control_per_door_plus_aggregate():
     responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
-    c = {x.id: x for x in GateAdapter("http://g", headers={"X-Verified-User": "svc@local"}).snapshot()}
+    c = {
+        x.id: x
+        for x in GateAdapter(
+            "http://g", headers={"X-Verified-User": "svc@local"}
+        ).snapshot()
+    }
 
     assert c["front"].kind == "tristate"
     assert c["front"].options == ["once", "timed", "forever"]
     assert c["front"].on is False
     # Real-world bad-DPS case: status/door_position say "open" but lock_state
-    # says "lock" -> we must report Locked and ignore the bogus position.
+    # says "lock" -> we must report Closed and ignore the bogus position.
     assert c["front"].mode is None
-    assert c["front"].status == "Locked"
+    assert c["front"].status == "Closed"
 
-    # Unlocked derived from lock_state (even though door_position is "open").
-    assert c["garage"].mode is None and c["garage"].status == "Unlocked"
+    # Open derived from lock_state (even though door_position is "open").
+    assert c["garage"].mode is None and c["garage"].status == "Open"
 
-    assert c["side"].on is True and c["side"].mode == "forever" and c["side"].status == "Held open"
+    assert (
+        c["side"].on is True
+        and c["side"].mode == "forever"
+        and c["side"].status == "Held open"
+    )
 
     assert c["back"].mode == "timed" and c["back"].status.startswith("Held until")
 
@@ -101,28 +110,41 @@ def test_snapshot_injects_service_user_header():
 def test_start_spawns_thread_without_error(monkeypatch):
     import homed.adapters.gate as gatemod
 
-    monkeypatch.setattr(gatemod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(
+        gatemod.threading,
+        "Thread",
+        lambda *a, **k: type("T", (), {"start": lambda self: None})(),
+    )
     t = GateAdapter("http://g").start(lambda: None)
     assert t is not None
 
 
 @responses.activate
 def test_command_unlock_once():
-    responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
+    responses.add(
+        responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200
+    )
     GateAdapter("http://g").command("front", {"action": "unlock"})
     assert responses.calls[0].request.url.endswith("/unlock/front")
 
 
 @responses.activate
 def test_command_default_action_is_unlock():
-    responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
+    responses.add(
+        responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200
+    )
     GateAdapter("http://g").command("front", {})
     assert responses.calls[0].request.url.endswith("/unlock/front")
 
 
 @responses.activate
 def test_command_door_id_is_url_quoted():
-    responses.add(responses.POST, "http://g/unlock/..%2Fadmin", json={"status": "success"}, status=200)
+    responses.add(
+        responses.POST,
+        "http://g/unlock/..%2Fadmin",
+        json={"status": "success"},
+        status=200,
+    )
     GateAdapter("http://g").command("../admin", {"action": "unlock"})
     url = responses.calls[0].request.url
     assert "..%2Fadmin" in url
@@ -131,8 +153,15 @@ def test_command_door_id_is_url_quoted():
 
 @responses.activate
 def test_command_hold_today_passes_end_time():
-    responses.add(responses.POST, "http://g/hold/today/front", json={"status": "success"}, status=200)
-    GateAdapter("http://g").command("front", {"action": "hold_today", "end_time": "20:30"})
+    responses.add(
+        responses.POST,
+        "http://g/hold/today/front",
+        json={"status": "success"},
+        status=200,
+    )
+    GateAdapter("http://g").command(
+        "front", {"action": "hold_today", "end_time": "20:30"}
+    )
     import json
 
     assert json.loads(responses.calls[0].request.body) == {"end_time": "20:30"}
@@ -142,7 +171,16 @@ def test_command_hold_today_passes_end_time():
 def test_command_aggregate_unlocks_all_doors():
     responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
     for door in ("front", "side", "back", "garage", "legacy"):
-        responses.add(responses.POST, f"http://g/unlock/{door}", json={"status": "success"}, status=200)
+        responses.add(
+            responses.POST,
+            f"http://g/unlock/{door}",
+            json={"status": "success"},
+            status=200,
+        )
     GateAdapter("http://g").command("gate", {"action": "unlock"})
-    unlocked = {c.request.url.rsplit("/", 1)[1] for c in responses.calls if "/unlock/" in c.request.url}
+    unlocked = {
+        c.request.url.rsplit("/", 1)[1]
+        for c in responses.calls
+        if "/unlock/" in c.request.url
+    }
     assert unlocked == {"front", "side", "back", "garage", "legacy"}
