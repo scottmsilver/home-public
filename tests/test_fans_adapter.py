@@ -73,3 +73,11 @@ def test_command_heaters_iterates_devices():
     import json
 
     assert json.loads(responses.calls[-1].request.body) == {"power": False}
+
+
+def test_ws_message_triggers_on_change(monkeypatch):
+    a = FansAdapter("http://f")
+    hits = []
+    a._on_change = lambda: hits.append(1)
+    a._handle_ws_message("{}")
+    assert hits == [1]
