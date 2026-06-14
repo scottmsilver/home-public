@@ -89,3 +89,23 @@ def test_start_spawns_thread_without_error(monkeypatch):
     monkeypatch.setattr(fansmod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
     t = FansAdapter("http://f").start(lambda: None)
     assert t is not None
+
+
+MIXED_SPEED_SNAP = {
+    "fans": [
+        {"id": "a", "name": "A", "online": True, "state": {"fanOn": True, "fanSpeed": 2, "lightOn": False}},
+        {"id": "b", "name": "B", "online": True, "state": {"fanOn": True, "fanSpeed": 5, "lightOn": False}},
+    ],
+    "heaters": [],
+}
+
+
+@responses.activate
+def test_snapshot_mixed_speeds_yields_none_value():
+    responses.add(responses.GET, "http://f/api/fans", json=MIXED_SPEED_SNAP, status=200)
+    controls = {c.id: c for c in FansAdapter("http://f").snapshot()}
+
+    fans = controls["fans"]
+    assert fans.on is True
+    assert fans.status == "2 of 2"
+    assert fans.value is None  # two fans on at different speeds → no shared value
