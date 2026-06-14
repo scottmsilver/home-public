@@ -83,7 +83,9 @@ class AuthGate:
 
     def verify_session(self, value):
         try:
-            return jwt.decode(value, self.session_secret, algorithms=["HS256"]).get("email")
+            return jwt.decode(value, self.session_secret, algorithms=["HS256"], options={"require": ["exp"]}).get(
+                "email"
+            )
         except jwt.PyJWTError:
             return None
 
