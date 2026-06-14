@@ -40,3 +40,24 @@ def test_snapshot_tolerates_null_bodies():
         status=200,
     )
     assert PoolAdapter("http://p").snapshot() == []
+
+
+@responses.activate
+def test_command_spa_on():
+    responses.add(responses.POST, "http://p/api/spa/on", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("spa", {"on": True})
+    assert responses.calls[0].request.url.endswith("/api/spa/on")
+
+
+@responses.activate
+def test_command_pool_off():
+    responses.add(responses.POST, "http://p/api/pool/off", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("pool", {"on": False})
+    assert responses.calls[0].request.url.endswith("/api/pool/off")
+
+
+@responses.activate
+def test_command_aux_on():
+    responses.add(responses.POST, "http://p/api/auxiliary/water_feature/on", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("water_feature", {"on": True})
+    assert responses.calls[0].request.url.endswith("/api/auxiliary/water_feature/on")

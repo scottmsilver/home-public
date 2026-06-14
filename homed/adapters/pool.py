@@ -56,5 +56,10 @@ class PoolAdapter(Adapter):
             )
         return out
 
-    def command(self, control_id, payload):  # filled in Task 9
-        raise NotImplementedError
+    def command(self, control_id, payload):
+        verb = "on" if payload.get("on") else "off"
+        named = {"spa", "pool", "lights"}
+        if control_id in named:
+            self.post_json(f"/api/{control_id}/{verb}", {})
+        else:
+            self.post_json(f"/api/auxiliary/{control_id}/{verb}", {})
