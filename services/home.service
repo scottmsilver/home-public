@@ -1,0 +1,13 @@
+[Unit]
+Description=Home control gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ssilver
+WorkingDirectory=/home/ssilver/development/home
+ExecStart=/home/ssilver/development/home/.venv/bin/python -m homed --config /home/ssilver/development/home-instance/config/home.toml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
