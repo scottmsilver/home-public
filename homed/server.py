@@ -11,10 +11,15 @@ from homed.auth import HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL,
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
-def _filter_home(state, home_rows):
-    """Order/limit controls to those named by home_rows."""
+def _home_sections(state, home_rows):
+    """Group controls into one section per home_row, in config order.
+
+    Each section is {"title": <str>, "controls": [<control dicts>]}. The title is
+    the row's explicit ``title`` if present, else the capitalized domain. Rows that
+    resolve to zero controls are omitted (so a down backend renders no empty card).
+    """
     by_id = {(c["domain"], c["id"]): c for c in state["controls"]}
-    out = []
+    sections = []
     for row in home_rows:
         dom = row["domain"]
         ids = row.get("groups") or row.get("circuits") or ([row["control"]] if row.get("control") else [])
@@ -25,11 +30,12 @@ def _filter_home(state, home_rows):
             # so real doors win the name match (the aggregate shares name "Gate").
             by_name = {c["name"]: c["id"] for c in state["controls"] if c["domain"] == "gate" and c["id"] != "gate"}
             ids = [by_name[name] for name in row["doors"] if name in by_name]
-        for cid in ids:
-            c = by_id.get((dom, cid))
-            if c:
-                out.append(c)
-    return {"controls": out}
+        controls = [c for cid in ids if (c := by_id.get((dom, cid)))]
+        if not controls:
+            continue
+        title = row.get("title") or dom.capitalize()
+        sections.append({"title": title, "controls": controls})
+    return sections
 
 
 def create_app(aggregator, home_rows, web):
@@ -57,7 +63,7 @@ def create_app(aggregator, home_rows, web):
 
     @app.get("/api/home")
     def home():
-        return jsonify(_filter_home(aggregator.state(), home_rows))
+        return jsonify({"sections": _home_sections(aggregator.state(), home_rows)})
 
     @app.post("/api/command")
     def command():

@@ -15,15 +15,23 @@ remote_domain  = ""                    # e.g. "home.i.oursilverfamily.com"; empt
 broker_url     = "https://auth.oursilverfamily.com"
 allowed_emails = []                    # e.g. ["you@gmail.com"]
 
-# Which controls surface on the unified Home card.
+# Which controls surface on the unified Home card. One section (card) per row.
 [[home.rows]]
 domain = "gate"
 doors  = ["Gate"]
+title  = "Gate"
 
 [[home.rows]]
 domain   = "pool"
-circuits = ["spa", "spa_setpoint", "lights"]
+circuits = ["spa", "spa_setpoint"]
+title    = "Spa"
+
+[[home.rows]]
+domain   = "pool"
+circuits = ["lights"]
+title    = "Pool Light"
 
 [[home.rows]]
 domain = "fans"
 groups = ["fans", "lights"]
+title  = "Fans"

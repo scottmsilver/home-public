@@ -68,7 +68,10 @@ def test_state_endpoint():
 def test_home_endpoint_filters_by_rows():
     client, _ = make_client(home_rows=[{"domain": "fans", "groups": ["fans"]}])
     r = client.get("/api/home")
-    ids = [c["id"] for c in r.get_json()["controls"]]
+    sections = r.get_json()["sections"]
+    assert len(sections) == 1
+    assert sections[0]["title"] == "Fans"
+    ids = [c["id"] for c in sections[0]["controls"]]
     assert ids == ["fans"]
 
 
@@ -94,10 +97,35 @@ def test_home_endpoint_gate_doors_by_name():
     agg.refresh_all()
     app = create_app(agg, home_rows=[{"domain": "gate", "doors": ["Gate"]}], web={})
     client = app.test_client()
-    controls = client.get("/api/home").get_json()["controls"]
+    sections = client.get("/api/home").get_json()["sections"]
+    assert len(sections) == 1
+    assert sections[0]["title"] == "Gate"
+    controls = sections[0]["controls"]
     # must resolve to the real door, NOT the synthetic aggregate
     assert [c["id"] for c in controls] == ["door-vehicle"]
     assert controls[0]["status"] == "Open"
+
+
+def test_home_sections_use_row_title():
+    client, _ = make_client(home_rows=[{"domain": "fans", "groups": ["fans"], "title": "Living Room"}])
+    sections = client.get("/api/home").get_json()["sections"]
+    assert len(sections) == 1
+    assert sections[0]["title"] == "Living Room"
+    assert [c["id"] for c in sections[0]["controls"]] == ["fans"]
+
+
+def test_home_sections_skip_empty():
+    client, _ = make_client(
+        home_rows=[
+            {"domain": "fans", "groups": ["fans"]},
+            {"domain": "fans", "groups": ["nonexistent"]},
+        ]
+    )
+    sections = client.get("/api/home").get_json()["sections"]
+    # the row matching nothing is dropped
+    assert len(sections) == 1
+    assert sections[0]["title"] == "Fans"
+    assert [c["id"] for c in sections[0]["controls"]] == ["fans"]
 
 
 def test_command_endpoint_dispatches():
