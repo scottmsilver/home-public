@@ -7,3 +7,4 @@ home.toml
 ~/.home/
 .venv/
 venv/
+.gstack/
