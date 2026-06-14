@@ -586,7 +586,9 @@ function App() {
     const homeControls = homeIds.map((k) => byKey[k]).filter(Boolean);
     body = <HomeCard controls={homeControls} command={command} />;
   } else {
-    const domainControls = (state.controls || []).filter((c) => c.domain === tab);
+    const domainControls = (state.controls || [])
+      .filter((c) => c.domain === tab)
+      .filter((c) => !(c.domain === "gate" && c.id === "gate"));
     body = <DomainCard tab={tab} controls={domainControls} command={command} />;
   }
 
