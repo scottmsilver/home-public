@@ -645,6 +645,16 @@ function ModesRow({ control, command, iconNode, bare }) {
   const offActive = !control.on;
   const subStatus = control.on ? (control.mode || control.status || "On") : "Off";
 
+  // Collapse the palette when the light is off: show only the Off/power swatch
+  // until the user taps it to reveal the colors. The light being on always
+  // forces the palette open.
+  const [expanded, setExpanded] = useState(false);
+  const isExpanded = control.on || expanded;
+
+  // Extra breathing room above the palette (esp. below the Setpoint row in the
+  // Spa card). The .swatches CSS default is 12px; bump it to ~19px.
+  const swatchesStyle = { marginTop: 19 };
+
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       {bare ? null : (
@@ -657,16 +667,25 @@ function ModesRow({ control, command, iconNode, bare }) {
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
       )}
-      <div className="swatches"
-           style={bare ? { marginTop: 0 } : undefined}>
+      <div className="swatches" style={swatchesStyle}>
         <button className={"swatch" + (offActive ? " on" : "")}
                 style={{ background: SWATCH_BG.off }}
                 disabled={!control.online}
                 aria-label="Off"
-                onClick={() => command(control, { on: false })}>
+                onClick={() => {
+                  if (isExpanded) {
+                    // Off swatch in the open palette: turn the light off and
+                    // collapse back down to the single swatch.
+                    command(control, { on: false });
+                    setExpanded(false);
+                  } else {
+                    // Collapsed Off swatch: just reveal the colors, no command.
+                    setExpanded(true);
+                  }
+                }}>
           {POWER_SVG}
         </button>
-        {options.map((name) => {
+        {isExpanded ? options.map((name) => {
           const key = name.toLowerCase();
           const bg = SWATCH_BG[key] || "var(--track)";
           const active = control.on && key === mode;
@@ -677,7 +696,7 @@ function ModesRow({ control, command, iconNode, bare }) {
                     aria-label={name}
                     onClick={() => command(control, { mode: name })} />
           );
-        })}
+        }) : null}
       </div>
     </div>
   );
