@@ -51,3 +51,36 @@ def test_start_spawns_thread_without_error(monkeypatch):
     monkeypatch.setattr(gatemod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
     t = GateAdapter("http://g").start(lambda: None)
     assert t is not None
+
+
+@responses.activate
+def test_command_unlock_once():
+    responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
+    GateAdapter("http://g").command("front", {"action": "unlock"})
+    assert responses.calls[0].request.url.endswith("/unlock/front")
+
+
+@responses.activate
+def test_command_default_action_is_unlock():
+    responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
+    GateAdapter("http://g").command("front", {})
+    assert responses.calls[0].request.url.endswith("/unlock/front")
+
+
+@responses.activate
+def test_command_hold_today_passes_end_time():
+    responses.add(responses.POST, "http://g/hold/today/front", json={"status": "success"}, status=200)
+    GateAdapter("http://g").command("front", {"action": "hold_today", "end_time": "20:30"})
+    import json
+
+    assert json.loads(responses.calls[0].request.body) == {"end_time": "20:30"}
+
+
+@responses.activate
+def test_command_aggregate_unlocks_all_doors():
+    responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
+    responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
+    responses.add(responses.POST, "http://g/unlock/side", json={"status": "success"}, status=200)
+    GateAdapter("http://g").command("gate", {"action": "unlock"})
+    unlocked = {c.request.url.rsplit("/", 1)[1] for c in responses.calls if "/unlock/" in c.request.url}
+    assert unlocked == {"front", "side"}
