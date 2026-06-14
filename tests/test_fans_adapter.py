@@ -25,16 +25,19 @@ def test_snapshot_aggregates_fans_lights_heaters():
     controls = {c.id: c for c in FansAdapter("http://f").snapshot()}
 
     fans = controls["fans"]
+    assert fans.name == "Fans"
     assert fans.kind == "speed" and fans.on is True
     assert fans.range == (1, 6)
     assert fans.status == "1 of 2"  # one of two fans on
     assert fans.value == 2  # shared speed (only A is on)
 
     lights = controls["lights"]
+    assert lights.name == "Lights"
     assert lights.kind == "slider" and lights.on is True
     assert lights.value == 60 and lights.range == (1, 100)
 
     heaters = controls["heaters"]
+    assert heaters.name == "Heaters"
     assert heaters.kind == "slider" and heaters.on is True and heaters.value == 40
 
 
