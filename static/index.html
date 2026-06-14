@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:,">
+<title>Home</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root {
+  --bg: #000000;
+  --card: #1c1c1e;
+  --fill: #2c2c2e;
+  --track: #3a3a3c;
+  --label: #ffffff;
+  --label2: #8e8e93;
+  --label3: rgba(235,235,245,0.28);
+  --cyan: #64d2ff;
+  --blue: #0a84ff;
+  --amber: #ffd60a;
+  --orange: #ff9f0a;
+  --green: #30d158;
+  --indigo: #7d7aff;
+  --red: #ff453a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  background: var(--bg); color: var(--label);
+  min-height: 100%;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  display: flex; justify-content: center;
+}
+.app { width: 100%; max-width: 420px; padding: 0 16px calc(28px + env(safe-area-inset-bottom)); }
+
+/* ── Large-title header ─────────────────── */
+.hdr {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: calc(22px + env(safe-area-inset-top)) 4px 16px;
+}
+.hdr-title {
+  font-size: 34px; font-weight: 700; letter-spacing: 0.3px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+}
+.hdr-right { display: flex; align-items: center; gap: 12px; padding-bottom: 5px; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); transition: background .2s; }
+.conn-dot.off { background: var(--red); }
+
+/* iOS segmented control */
+.seg { display: inline-flex; background: var(--fill); border-radius: 11px; padding: 2px; }
+.seg button {
+  padding: 7px 16px; border: none; background: transparent;
+  color: var(--label2); font-size: 14px; font-weight: 600;
+  border-radius: 9px; font-family: inherit; cursor: pointer;
+  transition: background .18s ease-out, color .18s ease-out;
+}
+.seg button.active { background: #636366; color: #fff; }
+
+/* ── Cards ──────────────────────────────── */
+.card {
+  background: var(--card);
+  border-radius: 22px;
+  padding: 18px 18px 20px;
+  margin-bottom: 12px;
+}
+.card-title-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; min-height: 22px;
+}
+.card-title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+.card-status { font-size: 13px; color: var(--label2); font-variant-numeric: tabular-nums; }
+
+/* group divider label inside the unified Home card */
+.group-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .6px;
+  color: var(--label2); text-transform: uppercase;
+  margin: 4px 0 10px; padding-top: 4px;
+}
+.group-label.spaced { margin-top: 18px; }
+
+/* ── Control rows ───────────────────────── */
+.ctl {
+  display: flex; align-items: center; gap: 14px;
+  min-height: 44px;
+  --c: var(--cyan);
+}
+.ctl + .ctl { margin-top: 12px; }
+.ctl.offline { opacity: .4; }
+
+.ctl-icon {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: var(--fill); border: none; cursor: pointer; padding: 0;
+  color: var(--label3);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  transition: color .25s ease-out, box-shadow .25s ease-out, transform .12s ease-out;
+}
+.ctl-icon:active { transform: scale(.9); }
+.ctl-icon svg { width: 22px; height: 22px; display: block; }
+.ctl.on .ctl-icon {
+  color: var(--c);
+  box-shadow: inset 0 0 0 1px var(--c), 0 0 14px -3px var(--c);
+}
+.ctl-icon[disabled] { cursor: default; }
+
+.ctl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ctl-name { font-size: 16px; font-weight: 500; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctl-sub { font-size: 12px; color: var(--label2); font-variant-numeric: tabular-nums; }
+.ctl-sub.warn { color: var(--orange); }
+
+.ctl-right { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.off-badge {
+  font-size: 11px; font-weight: 600; color: var(--orange);
+  background: rgba(255,159,10,.16); padding: 3px 8px; border-radius: 8px;
+}
+
+/* slider */
+.slider-wrap { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+input[type=range] {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 30px; background: transparent; cursor: pointer; min-width: 0;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 7px; border-radius: 3.5px;
+  background: linear-gradient(to right,
+    var(--c) 0%, var(--c) var(--pct,0%), var(--track) var(--pct,0%));
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; margin-top: -9.5px;
+  box-shadow: 0 2px 7px rgba(0,0,0,.5);
+}
+input[type=range]::-moz-range-track { height: 7px; border-radius: 3.5px; background: var(--track); }
+input[type=range]::-moz-range-progress { height: 7px; border-radius: 3.5px; background: var(--c); }
+input[type=range]::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%; border: none;
+  background: #fff; box-shadow: 0 2px 7px rgba(0,0,0,.5);
+}
+.slider-val {
+  width: 38px; flex-shrink: 0; text-align: right;
+  font-size: 15px; font-weight: 600; color: var(--label2);
+  font-variant-numeric: tabular-nums;
+}
+.ctl.on .slider-val { color: var(--label); }
+
+/* speed pills */
+.segc { display: flex; gap: 5px; margin-top: 8px; }
+.spd {
+  flex: 1; padding: 9px 0; border-radius: 9px;
+  background: var(--fill); border: none; color: var(--label2);
+  font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background .15s ease-out, color .15s ease-out, transform .12s ease-out;
+}
+.spd.on { background: rgba(100,210,255,.22); color: var(--cyan); }
+.spd:active { transform: scale(.92); }
+
+/* momentary pill button */
+.pill {
+  flex-shrink: 0;
+  padding: 8px 16px; border-radius: 14px;
+  background: var(--fill); border: none; cursor: pointer;
+  color: var(--label); font-size: 14px; font-weight: 600;
+  font-family: inherit;
+  transition: background .16s ease-out, transform .15s ease-out;
+}
+.pill:active { transform: scale(.94); }
+.pill.accent { background: rgba(48,209,88,.2); color: var(--green); }
+.pill[disabled] { opacity: .5; cursor: default; }
+.pill.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--track); color: var(--label2); padding: 7px 12px; font-size: 13px; }
+
+.spin {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25); border-top-color: #fff;
+  animation: spin .7s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* centered dialog / action sheet */
+.ov {
+  position: fixed; inset: 0; z-index: 10;
+  background: rgba(0,0,0,.5);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: calc(64px + env(safe-area-inset-top)) 16px 16px;
+}
+.sheet {
+  width: 100%; max-width: 404px;
+  background: #1c1c1e; border-radius: 18px;
+  padding: 18px 16px 18px;
+}
+.sheet-title { font-size: 15px; font-weight: 600; color: var(--label); margin-bottom: 4px; text-align: center; }
+.sheet-sub { font-size: 12px; color: var(--label2); margin-bottom: 16px; text-align: center; }
+.sheet-row {
+  width: 100%; margin-top: 8px; padding: 15px 0; border-radius: 13px;
+  background: var(--fill); border: none; font-family: inherit;
+  font-size: 16px; font-weight: 500; color: var(--label); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.sheet-row:active { background: var(--track); }
+.sheet-row.danger { color: var(--red); }
+.sheet-input {
+  background: var(--fill); border: none; border-radius: 11px;
+  padding: 11px 12px; color: var(--label); font-size: 16px; font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-input:focus { outline: 2px solid var(--cyan); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+{
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Icons ──────────────────────────────────────────────────────
+const Icon = ({ d, fill, stroke, vb = "0 0 24 24", w = 2 }) => (
+  <svg viewBox={vb} fill={fill || "none"} stroke={stroke || (fill ? "none" : "currentColor")}
+       strokeWidth={w} strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+);
+const FAN_SVG = (<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2.2"/><path d="M12 9.5c-.6-3.4.8-6 3.1-6.4 2-.4 3.4 1 3 2.7-.4 1.6-2.4 2.6-4.6 3.4-.5.1-1 .2-1.5.3zM9.8 13.2c-2.7 2.2-5.6 2.5-7.1.7-1.3-1.6-.6-3.4 1.1-3.7 1.6-.3 3.5.9 5.2 2.4.3.2.5.4.8.6zM14.2 13.3c3.3 1.2 4.9 3.6 4 5.8-.8 1.9-2.7 2.3-3.9 1-1.1-1.2-1-3.5-.5-5.8.1-.3.2-.7.4-1z"/></svg>);
+const BULB_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.3 2.2h4.6c.2-.8.6-1.6 1.3-2.2A6 6 0 0 0 12 3z"/></svg>);
+const HEAT_SVG = (<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c.6 2.9-.7 4.6-2.1 6.1C8.3 9.8 7 11.4 7 14a5 5 0 0 0 10 0c0-1.7-.7-3-1.4-4-.3.8-.9 1.4-1.7 1.6.5-2.2-.2-4.4-1.9-6.1C10.9 4.5 11.7 3 12 2z"/></svg>);
+const SPA_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 13h18M5 13V9a2 2 0 0 1 4 0M3 17a3 3 0 0 0 3 0 3 3 0 0 1 6 0 3 3 0 0 0 6 0 3 3 0 0 1 3 0"/></svg>);
+const POOL_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 18c1.5 0 1.5-1.5 3-1.5S8.5 18 10 18s1.5-1.5 3-1.5S14.5 18 16 18s1.5-1.5 3-1.5S20.5 18 22 18M6 16V5a2 2 0 0 1 4 0v9M14 16V5a2 2 0 0 1 4 0v9"/></svg>);
+const WATER_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3c3 4 6 7 6 10.5A6 6 0 0 1 6 13.5C6 10 9 7 12 3z"/></svg>);
+const BROOM_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 4l-7 7M9 14l1 1c1 1 1 3-1 5l-3 1-1-3c2-2 4-2 5-1l-1-3z"/></svg>);
+const SUN_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>);
+const LOCK_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>);
+const UNLOCK_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>);
+
+// Pick an icon + accent color per control id/domain.
+function iconFor(c) {
+  const key = c.domain + ":" + c.id;
+  const map = {
+    "fans:fans": { i: FAN_SVG, c: "var(--cyan)" },
+    "fans:lights": { i: BULB_SVG, c: "var(--amber)" },
+    "fans:heaters": { i: HEAT_SVG, c: "var(--orange)" },
+    "pool:spa": { i: SPA_SVG, c: "var(--orange)" },
+    "pool:pool": { i: POOL_SVG, c: "var(--blue)" },
+    "pool:lights": { i: BULB_SVG, c: "var(--amber)" },
+    "pool:water_feature": { i: WATER_SVG, c: "var(--cyan)" },
+    "pool:floor_cleaner": { i: BROOM_SVG, c: "var(--green)" },
+    "pool:yard_light": { i: SUN_SVG, c: "var(--amber)" },
+  };
+  if (map[key]) return map[key];
+  if (c.domain === "gate") return { i: c.status === "Locked" ? LOCK_SVG : UNLOCK_SVG, c: "var(--green)" };
+  if (c.domain === "fans") return { i: FAN_SVG, c: "var(--cyan)" };
+  return { i: BULB_SVG, c: "var(--amber)" };
+}
+
+// ── API helpers ────────────────────────────────────────────────
+async function postCommand(domain, id, payload) {
+  try {
+    const r = await fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, id, payload }),
+      credentials: "same-origin",
+    });
+    if (!r.ok) console.error("command failed", domain, id, payload, r.status);
+    return r.ok;
+  } catch (e) {
+    console.error("command error", e);
+    return false;
+  }
+}
+
+// ── Control rows ───────────────────────────────────────────────
+function ControlRow({ control, command }) {
+  const { i: iconNode, c: accent } = iconFor(control);
+  const offline = !control.online;
+  return (
+    <div className={"ctl" + (control.on ? " on" : "") + (offline ? " offline" : "")}
+         style={{ "--c": accent }}>
+      <KindBody control={control} command={command} iconNode={iconNode} accent={accent} />
+    </div>
+  );
+}
+
+// Renders the icon + name + the kind-specific affordance.
+function KindBody({ control, command, iconNode }) {
+  const k = control.kind;
+  if (k === "toggle") return <ToggleRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "momentary") return <MomentaryRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "slider") return <SliderRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "speed") return <SpeedRow control={control} command={command} iconNode={iconNode} />;
+  return <ReadoutRow control={control} iconNode={iconNode} />;
+}
+
+function IconBtn({ control, iconNode, onClick, disabled }) {
+  return (
+    <button className="ctl-icon" onClick={onClick} disabled={disabled}
+            aria-label={control.name + (control.on ? " on" : " off")}>
+      {iconNode}
+    </button>
+  );
+}
+
+function NameSub({ control }) {
+  return (
+    <div className="ctl-main">
+      <span className="ctl-name">{control.name}</span>
+      {control.status ? <span className="ctl-sub">{control.status}</span> : null}
+    </div>
+  );
+}
+
+function OfflineBadge({ control }) {
+  if (control.online) return null;
+  return <span className="off-badge">offline</span>;
+}
+
+function ToggleRow({ control, command, iconNode }) {
+  const tap = () => command(control, { on: !control.on });
+  return (
+    <React.Fragment>
+      <IconBtn control={control} iconNode={iconNode} onClick={tap} disabled={!control.online} />
+      <NameSub control={control} />
+      <div className="ctl-right"><OfflineBadge control={control} /></div>
+    </React.Fragment>
+  );
+}
+
+function MomentaryRow({ control, command, iconNode }) {
+  const [busy, setBusy] = useState(false);
+  const tap = async () => {
+    if (busy || !control.online) return;
+    setBusy(true);
+    await command(control, { action: "unlock" });
+    setTimeout(() => setBusy(false), 1500);
+  };
+  return (
+    <React.Fragment>
+      <IconBtn control={control} iconNode={iconNode} onClick={tap} disabled={!control.online} />
+      <NameSub control={control} />
+      <div className="ctl-right">
+        <OfflineBadge control={control} />
+        <button className="pill accent" onClick={tap} disabled={busy || !control.online}>
+          {busy ? <span className="spin" /> : "Unlock"}
+        </button>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function SliderRow({ control, command, iconNode }) {
+  const [min, max] = control.range || [1, 100];
+  const baseVal = control.on ? (control.value ?? min) : 0;
+  const [drag, setDrag] = useState(null);          // local drag value while sliding
+  const timer = useRef(null);
+  const val = drag != null ? drag : baseVal;
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  const shownPct = control.on || drag != null ? pct : 0;
+
+  const onInput = (e) => {
+    const v = parseInt(e.target.value, 10);
+    setDrag(v);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      command(control, { value: v });
+    }, 200);
+  };
+  const onCommit = () => {
+    clearTimeout(timer.current);
+    if (drag != null) command(control, { value: drag });
+    setTimeout(() => setDrag(null), 250);          // let SSE catch up before releasing
+  };
+  const tapIcon = () => command(control, control.on ? { on: false } : { value: control.value ?? max });
+
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
+        <NameSub control={control} />
+        <div className="ctl-right"><OfflineBadge control={control} /></div>
+      </div>
+      <div className="slider-wrap">
+        <input type="range" min={min} max={max} step="1" value={val}
+               style={{ "--pct": shownPct + "%" }}
+               aria-label={control.name}
+               disabled={!control.online}
+               onInput={onInput}
+               onMouseUp={onCommit} onTouchEnd={onCommit} />
+        <span className="slider-val">{control.on || drag != null ? val : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+function SpeedRow({ control, command, iconNode }) {
+  const [, max] = control.range || [1, 6];
+  const tapIcon = () => command(control, { on: !control.on });
+  const pills = [];
+  for (let n = 1; n <= max; n++) {
+    const active = control.on && control.value === n;
+    pills.push(
+      <button key={n} className={"spd" + (active ? " on" : "")}
+              disabled={!control.online}
+              onClick={() => command(control, { value: n })}>{n}</button>
+    );
+  }
+  const sub = control.on && control.value === null ? "Mixed" : control.status;
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
+        <div className="ctl-main">
+          <span className="ctl-name">{control.name}</span>
+          {sub ? <span className="ctl-sub">{sub}</span> : null}
+        </div>
+        <div className="ctl-right"><OfflineBadge control={control} /></div>
+      </div>
+      {control.on ? <div className="segc">{pills}</div> : null}
+    </div>
+  );
+}
+
+function ReadoutRow({ control, iconNode }) {
+  return (
+    <React.Fragment>
+      <div className="ctl-icon" style={{ cursor: "default" }}>{iconNode}</div>
+      <NameSub control={control} />
+      <div className="ctl-right">
+        {control.value != null ? <span className="card-status">{control.value}</span> : null}
+      </div>
+    </React.Fragment>
+  );
+}
+
+// ── Gate hold-action sheet ─────────────────────────────────────
+function GateHoldSheet({ control, command, onClose }) {
+  const [time, setTime] = useState("18:00");
+  const run = (payload) => { command(control, payload); onClose(); };
+  return (
+    <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) onClose(); }}>
+      <div className="sheet">
+        <div className="sheet-title">{control.name}</div>
+        <div className="sheet-sub">Hold open</div>
+        <div className="sheet-row" style={{ justifyContent: "space-between", padding: "12px 14px" }}>
+          <span style={{ fontWeight: 500 }}>Until time</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <input className="sheet-input" type="time" value={time}
+                   onChange={(e) => setTime(e.target.value)} style={{ width: 120 }} />
+            <button className="pill accent"
+                    onClick={() => run({ action: "hold_today", end_time: time })}>Set</button>
+          </span>
+        </div>
+        <button className="sheet-row" onClick={() => run({ action: "hold_forever" })}>Forever</button>
+        <button className="sheet-row danger" onClick={() => run({ action: "stop" })}>Stop hold</button>
+        <button className="sheet-row" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// A gate door row with an extra "Hold" affordance opening the sheet.
+function GateDoorRow({ control, command }) {
+  const { i: iconNode } = iconFor(control);
+  const [busy, setBusy] = useState(false);
+  const [sheet, setSheet] = useState(false);
+  const unlock = async () => {
+    if (busy || !control.online) return;
+    setBusy(true);
+    await command(control, { action: "unlock" });
+    setTimeout(() => setBusy(false), 1500);
+  };
+  return (
+    <React.Fragment>
+      <div className={"ctl" + (control.online ? "" : " offline")} style={{ "--c": "var(--green)" }}>
+        <IconBtn control={control} iconNode={iconNode} onClick={unlock} disabled={!control.online} />
+        <NameSub control={control} />
+        <div className="ctl-right">
+          <OfflineBadge control={control} />
+          <button className="pill ghost" onClick={() => setSheet(true)} disabled={!control.online}>Hold</button>
+          <button className="pill accent" onClick={unlock} disabled={busy || !control.online}>
+            {busy ? <span className="spin" /> : "Unlock"}
+          </button>
+        </div>
+      </div>
+      {sheet ? <GateHoldSheet control={control} command={command} onClose={() => setSheet(false)} /> : null}
+    </React.Fragment>
+  );
+}
+
+// ── Cards ──────────────────────────────────────────────────────
+const DOMAIN_LABEL = { gate: "GATE", pool: "POOL", fans: "FANS" };
+const DOMAIN_TITLE = { gate: "Gate", pool: "Pool", fans: "Fans" };
+
+function HomeCard({ controls, command }) {
+  if (!controls.length) {
+    return <div className="card"><div className="card-status">No home controls configured.</div></div>;
+  }
+  const out = [];
+  let lastDomain = null;
+  controls.forEach((c, idx) => {
+    if (c.domain !== lastDomain) {
+      out.push(
+        <div key={"lbl-" + c.domain + idx}
+             className={"group-label" + (lastDomain ? " spaced" : "")}>
+          {DOMAIN_LABEL[c.domain] || c.domain.toUpperCase()}
+        </div>
+      );
+      lastDomain = c.domain;
+    }
+    out.push(<ControlRow key={c.domain + ":" + c.id} control={c} command={command} />);
+  });
+  return <div className="card">{out}</div>;
+}
+
+function DomainCard({ tab, controls, command }) {
+  const rows = controls.map((c) =>
+    tab === "gate"
+      ? <GateDoorRow key={c.domain + ":" + c.id} control={c} command={command} />
+      : <ControlRow key={c.domain + ":" + c.id} control={c} command={command} />
+  );
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <div className="card-title">{DOMAIN_TITLE[tab] || tab}</div>
+      </div>
+      {rows.length ? rows : <div className="card-status">No controls.</div>}
+    </div>
+  );
+}
+
+// ── App ────────────────────────────────────────────────────────
+const TABS = [
+  { id: "home", label: "Home" },
+  { id: "gate", label: "Gate" },
+  { id: "pool", label: "Pool" },
+  { id: "fans", label: "Fans" },
+];
+
+function App() {
+  const [state, setState] = useState({ controls: [] });
+  const [homeIds, setHomeIds] = useState([]);      // ordered list of "domain:id" for the Home card
+  const [tab, setTab] = useState("home");
+  const [connected, setConnected] = useState(false);
+  const draggingRef = useRef(false);
+
+  // Initial paint + learn the Home control ids/order.
+  useEffect(() => {
+    fetch("/api/state", { credentials: "same-origin" })
+      .then((r) => r.json()).then((d) => setState(d)).catch(() => {});
+    fetch("/api/home", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => setHomeIds((d.controls || []).map((c) => c.domain + ":" + c.id)))
+      .catch(() => {});
+  }, []);
+
+  // Live SSE stream.
+  useEffect(() => {
+    const es = new EventSource("/api/stream");
+    es.onopen = () => setConnected(true);
+    es.onmessage = (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d && d.controls) { setConnected(true); setState(d); }
+      } catch (e) { /* ignore malformed frame */ }
+    };
+    es.onerror = () => setConnected(false);   // EventSource auto-reconnects
+    return () => es.close();
+  }, []);
+
+  const command = useCallback((control, payload) => {
+    postCommand(control.domain, control.id, payload);
+  }, []);
+
+  const byKey = {};
+  (state.controls || []).forEach((c) => { byKey[c.domain + ":" + c.id] = c; });
+
+  let body;
+  if (tab === "home") {
+    const homeControls = homeIds.map((k) => byKey[k]).filter(Boolean);
+    body = <HomeCard controls={homeControls} command={command} />;
+  } else {
+    const domainControls = (state.controls || []).filter((c) => c.domain === tab);
+    body = <DomainCard tab={tab} controls={domainControls} command={command} />;
+  }
+
+  return (
+    <div className="app">
+      <div className="hdr">
+        <div className="seg">
+          {TABS.map((t) => (
+            <button key={t.id} className={t.id === tab ? "active" : ""}
+                    onClick={() => setTab(t.id)}>{t.label}</button>
+          ))}
+        </div>
+        <div className="hdr-right">
+          <div className={"conn-dot" + (connected ? "" : " off")}
+               title={connected ? "Connected" : "Reconnecting…"} />
+        </div>
+      </div>
+      {body}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+}
+</script>
+</body>
+</html>
