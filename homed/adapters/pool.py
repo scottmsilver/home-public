@@ -105,7 +105,12 @@ class PoolAdapter(Adapter):
             elif state == "jets":
                 self.post_json("/api/spa/jets/on", {})
         elif control_id == "spa_setpoint":
-            self.post_json("/api/spa/heat", {"setpoint": int(payload["setpoint"])})
+            try:
+                sp = int(payload["setpoint"])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("spa_setpoint requires an integer 'setpoint'")
+            sp = max(40, min(104, sp))
+            self.post_json("/api/spa/heat", {"setpoint": sp})
         elif control_id == "lights":
             if payload.get("mode"):
                 self.post_json("/api/lights/mode", {"mode": payload["mode"]})
