@@ -22,6 +22,15 @@ DEVICES = [
         "expires_at": None,
         "is_online": True,
     },
+    {
+        "id": "back",
+        "name": "Back",
+        "status": "unlocked",
+        "is_held": True,
+        "hold_state": "hold_today",
+        "expires_at": 1_700_000_000,
+        "is_online": True,
+    },
 ]
 
 
@@ -30,9 +39,15 @@ def test_snapshot_one_control_per_door_plus_aggregate():
     responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
     c = {x.id: x for x in GateAdapter("http://g", headers={"X-Verified-User": "svc@local"}).snapshot()}
 
-    assert c["front"].kind == "momentary" and c["front"].on is False
+    assert c["front"].kind == "tristate"
+    assert c["front"].options == ["once", "forever", "timed"]
+    assert c["front"].on is False
+    assert c["front"].mode is None
     assert c["front"].status == "Locked"
-    assert c["side"].on is True and c["side"].status == "Held open"
+
+    assert c["side"].on is True and c["side"].mode == "forever" and c["side"].status == "Held open"
+
+    assert c["back"].mode == "timed" and c["back"].status.startswith("Held until")
 
     agg = c["gate"]
     assert agg.kind == "momentary" and agg.status == "1 locked"
@@ -90,6 +105,7 @@ def test_command_aggregate_unlocks_all_doors():
     responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
     responses.add(responses.POST, "http://g/unlock/front", json={"status": "success"}, status=200)
     responses.add(responses.POST, "http://g/unlock/side", json={"status": "success"}, status=200)
+    responses.add(responses.POST, "http://g/unlock/back", json={"status": "success"}, status=200)
     GateAdapter("http://g").command("gate", {"action": "unlock"})
     unlocked = {c.request.url.rsplit("/", 1)[1] for c in responses.calls if "/unlock/" in c.request.url}
-    assert unlocked == {"front", "side"}
+    assert unlocked == {"front", "side", "back"}
