@@ -1,6 +1,7 @@
 # homed/adapters/gate.py
 import threading
 import time
+from urllib.parse import quote
 
 from homed.adapters.base import Adapter
 from homed.model import Control
@@ -53,6 +54,7 @@ class GateAdapter(Adapter):
             self._door_action(control_id, action, payload)
 
     def _door_action(self, door_id, action, payload):
+        door_id = quote(door_id, safe="")
         if action == "unlock":
             self.post_json(f"/unlock/{door_id}", {})
         elif action == "hold_today":

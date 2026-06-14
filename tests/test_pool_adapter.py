@@ -63,6 +63,15 @@ def test_command_aux_on():
     assert responses.calls[0].request.url.endswith("/api/auxiliary/water_feature/on")
 
 
+@responses.activate
+def test_command_aux_id_is_url_quoted():
+    responses.add(responses.POST, "http://p/api/auxiliary/..%2Fadmin/on", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("../admin", {"on": True})
+    url = responses.calls[0].request.url
+    assert "..%2Fadmin" in url
+    assert "/api/auxiliary/../admin" not in url
+
+
 def test_ws_message_triggers_on_change():
     a = PoolAdapter("http://p")
     hits = []
