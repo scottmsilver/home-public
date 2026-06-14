@@ -36,3 +36,40 @@ def test_snapshot_aggregates_fans_lights_heaters():
 
     heaters = controls["heaters"]
     assert heaters.kind == "slider" and heaters.on is True and heaters.value == 40
+
+
+@responses.activate
+def test_command_fans_toggle_posts_all():
+    responses.add(responses.POST, "http://f/api/all", json={}, status=200)
+    FansAdapter("http://f").command("fans", {"on": True})
+    import json
+
+    assert json.loads(responses.calls[0].request.body) == {"fanOn": True}
+
+
+@responses.activate
+def test_command_fans_speed_posts_all():
+    responses.add(responses.POST, "http://f/api/all", json={}, status=200)
+    FansAdapter("http://f").command("fans", {"value": 3})
+    import json
+
+    assert json.loads(responses.calls[0].request.body) == {"fanOn": True, "fanSpeed": 3}
+
+
+@responses.activate
+def test_command_lights_brightness_posts_all():
+    responses.add(responses.POST, "http://f/api/all", json={}, status=200)
+    FansAdapter("http://f").command("lights", {"value": 75})
+    import json
+
+    assert json.loads(responses.calls[0].request.body) == {"lightOn": True, "lightBrightness": 75}
+
+
+@responses.activate
+def test_command_heaters_iterates_devices():
+    responses.add(responses.GET, "http://f/api/fans", json=SNAP, status=200)
+    responses.add(responses.POST, "http://f/api/heaters/h1", json={}, status=200)
+    FansAdapter("http://f").command("heaters", {"on": False})
+    import json
+
+    assert json.loads(responses.calls[-1].request.body) == {"power": False}
