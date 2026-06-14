@@ -79,6 +79,18 @@ body {
 .card-title { font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
 .card-status { font-size: 13px; color: var(--label2); font-variant-numeric: tabular-nums; }
 
+/* section-card status badge pill (pentair-style) */
+.badge {
+  font-size: 12px; font-weight: 600; letter-spacing: .1px;
+  padding: 4px 10px; border-radius: 9px;
+  background: rgba(235,235,245,.12); color: var(--label2);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.badge.green  { background: rgba(48,209,88,.18);  color: var(--green); }
+.badge.teal   { background: rgba(100,210,255,.18); color: var(--cyan); }
+.badge.orange { background: rgba(255,159,10,.18);  color: var(--orange); }
+.badge.gray   { background: rgba(235,235,245,.12); color: var(--label2); }
+
 /* group divider label inside the unified Home card */
 .group-label {
   font-size: 12px; font-weight: 700; letter-spacing: .6px;
@@ -387,25 +399,25 @@ async function postCommand(domain, id, payload) {
 }
 
 // ── Control rows ───────────────────────────────────────────────
-function ControlRow({ control, command, onHome }) {
+function ControlRow({ control, command, onHome, bare }) {
   const { i: iconNode, c: accent } = iconFor(control);
   const offline = !control.online;
   return (
     <div className={"ctl" + (control.on ? " on" : "") + (offline ? " offline" : "")}
          style={{ "--c": accent }}>
-      <KindBody control={control} command={command} iconNode={iconNode} accent={accent} onHome={onHome} />
+      <KindBody control={control} command={command} iconNode={iconNode} accent={accent} onHome={onHome} bare={bare} />
     </div>
   );
 }
 
 // Renders the icon + name + the kind-specific affordance.
-function KindBody({ control, command, iconNode, onHome }) {
+function KindBody({ control, command, iconNode, onHome, bare }) {
   const k = control.kind;
   if (k === "toggle") return <ToggleRow control={control} command={command} iconNode={iconNode} />;
   if (k === "momentary") return <MomentaryRow control={control} command={command} iconNode={iconNode} />;
   if (k === "slider") return <SliderRow control={control} command={command} iconNode={iconNode} />;
   if (k === "speed") return <SpeedRow control={control} command={command} iconNode={iconNode} />;
-  if (k === "modes") return <ModesRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "modes") return <ModesRow control={control} command={command} iconNode={iconNode} bare={bare} />;
   if (k === "segmented") return <SegmentedRow control={control} command={command} iconNode={iconNode} />;
   if (k === "setpoint") return <SetpointRow control={control} command={command} iconNode={iconNode} />;
   if (k === "tristate") return <TristateRow control={control} command={command} iconNode={iconNode} />;
@@ -544,7 +556,9 @@ function SpeedRow({ control, command, iconNode }) {
 }
 
 // Pool Light → a horizontally-scrollable gallery of pentair color swatches.
-function ModesRow({ control, command, iconNode }) {
+// `bare` omits the icon + name + status line (used inside section cards whose
+// header already conveys the control's name + current mode).
+function ModesRow({ control, command, iconNode, bare }) {
   const options = control.options || [];
   const mode = (control.mode || "").toLowerCase();
   const tapIcon = () => command(control, { on: !control.on });
@@ -553,6 +567,7 @@ function ModesRow({ control, command, iconNode }) {
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
+      {bare ? null : (
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
         <div className="ctl-main">
@@ -561,7 +576,9 @@ function ModesRow({ control, command, iconNode }) {
         </div>
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
-      <div className="swatches">
+      )}
+      <div className="swatches"
+           style={bare ? { marginTop: 0 } : undefined}>
         <button className={"swatch" + (offActive ? " on" : "")}
                 style={{ background: SWATCH_BG.off }}
                 disabled={!control.online}
@@ -737,28 +754,105 @@ function GateHoldSheet({ control, command, onClose }) {
 }
 
 // ── Cards ──────────────────────────────────────────────────────
-const DOMAIN_LABEL = { gate: "GATE", pool: "POOL", fans: "FANS" };
 const DOMAIN_TITLE = { gate: "Gate", pool: "Pool", fans: "Fans" };
 
-function HomeCard({ controls, command }) {
-  if (!controls.length) {
+// Title-case a mode/scene name ("american" → "American").
+function titleCase(s) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Derive a small status badge ({ text, tone }) for a section card from its
+// primary control. `controls` are the LIVE controls for this section.
+// tone ∈ { green, teal, orange, gray }.
+function sectionBadge(title, controls) {
+  const byKind = (k) => controls.find((c) => c.kind === k);
+  const t = (title || "").toLowerCase();
+
+  // Gate → the door/momentary/tristate control's status.
+  if (t.indexOf("gate") !== -1) {
+    const door = byKind("tristate") || byKind("momentary") ||
+                 controls.find((c) => c.domain === "gate");
+    if (!door) return null;
+    const status = door.status || "";
+    let tone = "orange";
+    if (/lock/i.test(status)) tone = "green";
+    return status ? { text: status, tone } : null;
+  }
+
+  // Spa → short status from the segmented control.
+  if (t.indexOf("spa") !== -1) {
+    const spa = byKind("segmented") || controls.find((c) => c.id === "spa");
+    if (!spa) return null;
+    const status = spa.status || "";
+    const mode = (spa.mode || "").toLowerCase();
+    if (/heat/i.test(status)) return { text: "Heating", tone: "orange" };
+    if (mode === "off" || !spa.on) return { text: "Off", tone: "gray" };
+    return { text: "On", tone: "teal" };
+  }
+
+  // Pool Light → current mode name (title-cased), or "Off".
+  if (t.indexOf("light") !== -1 && t.indexOf("pool") !== -1) {
+    const m = byKind("modes") || controls.find((c) => c.id === "lights");
+    if (!m) return null;
+    if (m.on && m.mode) return { text: titleCase(m.mode), tone: "teal" };
+    return { text: "Off", tone: "gray" };
+  }
+
+  // Fans → optional All Fans status (e.g. "2 of 4").
+  if (t.indexOf("fan") !== -1) {
+    const f = byKind("speed") || controls.find((c) => c.id === "fans");
+    if (f && f.status) return { text: f.status, tone: f.on ? "teal" : "gray" };
+    return null;
+  }
+
+  return null;
+}
+
+// One pentair-style card per configured section.
+function SectionCard({ title, controls, command }) {
+  const badge = sectionBadge(title, controls);
+  const tl = (title || "").toLowerCase();
+  const isLightCard = tl.indexOf("light") !== -1 && tl.indexOf("pool") !== -1;
+
+  const rows = controls.map((c) => {
+    // In the Pool Light card, the header already conveys name + mode, so the
+    // ModesRow is rendered gallery-only (no redundant label line).
+    const bare = isLightCard && c.kind === "modes";
+    return (
+      <ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome bare={bare} />
+    );
+  });
+
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <div className="card-title">{title}</div>
+        {badge ? <span className={"badge " + badge.tone}>{badge.text}</span> : null}
+      </div>
+      {rows.length ? rows : <div className="card-status">No controls.</div>}
+    </div>
+  );
+}
+
+function HomeSections({ sections, byKey, command }) {
+  if (!sections.length) {
     return <div className="card"><div className="card-status">No home controls configured.</div></div>;
   }
-  const out = [];
-  let lastDomain = null;
-  controls.forEach((c, idx) => {
-    if (c.domain !== lastDomain) {
-      out.push(
-        <div key={"lbl-" + c.domain + idx}
-             className={"group-label" + (lastDomain ? " spaced" : "")}>
-          {DOMAIN_LABEL[c.domain] || c.domain.toUpperCase()}
-        </div>
-      );
-      lastDomain = c.domain;
-    }
-    out.push(<ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome />);
-  });
-  return <div className="card">{out}</div>;
+  return (
+    <React.Fragment>
+      {sections.map((sec, si) => {
+        // Live controls (SSE) by domain+id; fall back to the /api/home snapshot.
+        const controls = sec.ids
+          .map((k) => byKey[k.domain + ":" + k.id] || sec.snapshot[k.domain + ":" + k.id])
+          .filter(Boolean);
+        return (
+          <SectionCard key={"sec-" + si + ":" + sec.title}
+                       title={sec.title} controls={controls} command={command} />
+        );
+      })}
+    </React.Fragment>
+  );
 }
 
 function DomainCard({ tab, controls, command }) {
@@ -785,18 +879,35 @@ const TABS = [
 
 function App() {
   const [state, setState] = useState({ controls: [] });
-  const [homeIds, setHomeIds] = useState([]);      // ordered list of "domain:id" for the Home card
+  const [sections, setSections] = useState([]);    // [{title, ids:[{domain,id}], snapshot:{key->control}}]
   const [tab, setTab] = useState("home");
   const [connected, setConnected] = useState(false);
   const draggingRef = useRef(false);
 
-  // Initial paint + learn the Home control ids/order.
+  // Initial paint + learn the Home section structure (titles + control ids/order).
   useEffect(() => {
     fetch("/api/state", { credentials: "same-origin" })
       .then((r) => r.json()).then((d) => setState(d)).catch(() => {});
     fetch("/api/home", { credentials: "same-origin" })
       .then((r) => r.json())
-      .then((d) => setHomeIds((d.controls || []).map((c) => c.domain + ":" + c.id)))
+      .then((d) => {
+        // New shape: {sections:[{title, controls:[...]}]}. Fall back to the old
+        // flat {controls:[...]} shape by grouping into a single section.
+        let secs = d.sections;
+        if (!secs) {
+          secs = (d.controls && d.controls.length) ? [{ title: "Home", controls: d.controls }] : [];
+        }
+        setSections(secs.map((s) => {
+          const ctrls = s.controls || [];
+          const snapshot = {};
+          ctrls.forEach((c) => { snapshot[c.domain + ":" + c.id] = c; });
+          return {
+            title: s.title,
+            ids: ctrls.map((c) => ({ domain: c.domain, id: c.id })),
+            snapshot,
+          };
+        }));
+      })
       .catch(() => {});
   }, []);
 
@@ -823,8 +934,7 @@ function App() {
 
   let body;
   if (tab === "home") {
-    const homeControls = homeIds.map((k) => byKey[k]).filter(Boolean);
-    body = <HomeCard controls={homeControls} command={command} />;
+    body = <HomeSections sections={sections} byKey={byKey} command={command} />;
   } else {
     const domainControls = (state.controls || [])
       .filter((c) => c.domain === tab)
