@@ -1,3 +1,5 @@
+import pytest
+
 from homed.aggregator import Aggregator
 from homed.model import Control
 
@@ -48,7 +50,8 @@ def test_subscribe_receives_notification_on_change():
     agg = Aggregator({"fans": a})
     q = agg.subscribe()
     agg.refresh_domain("fans")  # simulate an update
-    assert q.get_nowait() is not None  # a state payload was queued
+    payload = q.get_nowait()  # a state payload was queued
+    assert payload["controls"][0]["domain"] == "fans"
 
 
 def test_start_begins_all_adapters():
@@ -56,3 +59,25 @@ def test_start_begins_all_adapters():
     agg = Aggregator({"fans": a})
     agg.start()
     assert a.started is True
+
+
+def test_full_queue_drops_without_raising():
+    a = FakeAdapter("fans", [Control("fans", "fans", "All Fans", "speed", on=True)])
+    agg = Aggregator({"fans": a})
+    agg.subscribe()  # never drained; maxsize is 8
+    # Notify well past the queue capacity; queue.Full must be swallowed.
+    for _ in range(20):
+        agg.refresh_domain("fans")  # returns normally, no exception
+
+
+def test_unsubscribe_stops_notifications():
+    import queue
+
+    a = FakeAdapter("fans", [Control("fans", "fans", "All Fans", "speed", on=True)])
+    agg = Aggregator({"fans": a})
+    q = agg.subscribe()
+    agg.unsubscribe(q)
+    agg.refresh_domain("fans")
+    assert q.empty()
+    with pytest.raises(queue.Empty):
+        q.get_nowait()
