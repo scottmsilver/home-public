@@ -30,7 +30,7 @@ class FansAdapter(Adapter):
             Control(
                 domain="fans",
                 id="fans",
-                name="All Fans",
+                name="Fans",
                 kind="speed",
                 on=bool(on_fans),
                 value=_shared(speeds) if speeds else None,
@@ -49,7 +49,7 @@ class FansAdapter(Adapter):
             Control(
                 domain="fans",
                 id="lights",
-                name="All Lights",
+                name="Lights",
                 kind="slider",
                 on=bool(on_lights),
                 value=_shared(brights) if brights else None,
@@ -67,7 +67,7 @@ class FansAdapter(Adapter):
                 Control(
                     domain="fans",
                     id="heaters",
-                    name="All Heaters",
+                    name="Heaters",
                     kind="slider",
                     on=bool(on_h),
                     value=_shared(levels) if levels else None,
