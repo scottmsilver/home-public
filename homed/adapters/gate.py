@@ -17,6 +17,12 @@ def _door_view(d):
             t = time.strftime("%-I:%M %p", time.localtime(exp))
             return "timed", f"Held until {t}"
         return "timed", "Held (timed)"
+    if d.get("lock_state") == "lock":
+        return None, "Locked"
+    if d.get("lock_state") == "unlock":
+        return None, "Unlocked"
+    # Older daemons / synthetic aggregate have no lock_state: fall back to the
+    # flattened position-based status.
     lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
     return None, lock
 
@@ -35,7 +41,7 @@ class GateAdapter(Adapter):
                     id=d["id"],
                     name=d.get("name", d["id"]),
                     kind="tristate",
-                    options=["once", "forever", "timed"],
+                    options=["once", "timed", "forever"],
                     mode=mode,
                     on=bool(d.get("is_held")),
                     status=status,
