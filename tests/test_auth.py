@@ -1,5 +1,6 @@
 # tests/test_auth.py
 import jwt
+from flask import Flask
 
 from homed.auth import AuthGate
 
@@ -44,3 +45,29 @@ def test_fully_configured(tmp_path):
     assert g.fully_configured is True
     g.handoff_secret = ""
     assert g.fully_configured is False
+
+
+def test_expired_session_rejected(tmp_path):
+    g = make_gate(tmp_path)
+    token = jwt.encode({"email": "you@gmail.com", "exp": 1}, "ss", algorithm="HS256")
+    assert g.verify_session(token) is None
+
+
+def test_session_signed_with_wrong_secret_rejected(tmp_path):
+    g = make_gate(tmp_path)
+    token = jwt.encode({"email": "you@gmail.com"}, "WRONG", algorithm="HS256")
+    assert g.verify_session(token) is None
+
+
+def test_handoff_token_signed_with_session_secret_fails(tmp_path):
+    g = make_gate(tmp_path)
+    token = jwt.encode({"email": "you@gmail.com"}, "ss", algorithm="HS256")
+    assert g.verify_handoff(token) is None
+
+
+def test_current_user_rejects_validly_signed_but_disallowed_email(tmp_path):
+    g = make_gate(tmp_path)
+    app = Flask(__name__)
+    cookie = g.make_session("intruder@evil.com")
+    with app.test_request_context("/", headers={"Cookie": f"home_session={cookie}"}):
+        assert g.current_user() is None
