@@ -1,5 +1,7 @@
 # homed/adapters/fans.py
+import threading
 
+import websocket
 
 from homed.adapters.base import Adapter
 from homed.model import Control
