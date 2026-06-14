@@ -61,3 +61,19 @@ def test_command_aux_on():
     responses.add(responses.POST, "http://p/api/auxiliary/water_feature/on", json={"ok": True}, status=200)
     PoolAdapter("http://p").command("water_feature", {"on": True})
     assert responses.calls[0].request.url.endswith("/api/auxiliary/water_feature/on")
+
+
+def test_ws_message_triggers_on_change():
+    a = PoolAdapter("http://p")
+    hits = []
+    a._on_change = lambda: hits.append(1)
+    a._handle_ws_message("{}")
+    assert hits == [1]
+
+
+def test_start_spawns_thread_without_error(monkeypatch):
+    import homed.adapters.pool as poolmod
+
+    monkeypatch.setattr(poolmod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    t = PoolAdapter("http://p").start(lambda: None)
+    assert t is not None
