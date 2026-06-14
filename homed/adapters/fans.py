@@ -1,4 +1,6 @@
 # homed/adapters/fans.py
+
+
 from homed.adapters.base import Adapter
 from homed.model import Control
 
@@ -97,3 +99,28 @@ class FansAdapter(Adapter):
                     self.post_json(f"/api/heaters/{h['id']}", {"power": bool(on)})
         else:
             raise ValueError(f"unknown fans control: {control_id}")
+
+    def start(self, on_change):
+        self._on_change = on_change
+        ws_url = self.base_url.replace("http", "ws", 1) + "/api/ws"
+        t = threading.Thread(target=self._run_ws, args=(ws_url,), daemon=True)
+        t.start()
+        return t
+
+    def _handle_ws_message(self, _msg):
+        if getattr(self, "_on_change", None):
+            self._on_change()
+
+    def _run_ws(self, ws_url):
+        import time
+
+        while True:
+            try:
+                app = websocket.WebSocketApp(
+                    ws_url,
+                    on_message=lambda _ws, m: self._handle_ws_message(m),
+                )
+                app.run_forever(ping_interval=30)
+            except Exception:
+                pass
+            time.sleep(3)  # reconnect backoff
