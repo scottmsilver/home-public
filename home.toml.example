@@ -23,13 +23,8 @@ title  = "Gate"
 
 [[home.rows]]
 domain   = "pool"
-circuits = ["spa", "spa_setpoint"]
+circuits = ["spa", "spa_setpoint", "lights"]
 title    = "Spa"
-
-[[home.rows]]
-domain   = "pool"
-circuits = ["lights"]
-title    = "Pool Light"
 
 [[home.rows]]
 domain = "fans"
