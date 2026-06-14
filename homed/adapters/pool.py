@@ -7,6 +7,9 @@ import websocket
 from homed.adapters.base import Adapter
 from homed.model import Control
 
+# Plumbing modes that are not user-selectable colors/scenes.
+_PLUMBING_MODES = {"off", "on", "set", "sync"}
+
 
 class PoolAdapter(Adapter):
     domain = "pool"
@@ -35,6 +38,10 @@ class PoolAdapter(Adapter):
                 )
             )
 
+            accessories = spa.get("accessories", {})
+            if "jets" in accessories:
+                out.append(Control(domain="pool", id="jets", name="Jets", kind="toggle", on=bool(accessories["jets"])))
+
         pool = data.get("pool")
         if pool is not None:
             out.append(
@@ -51,7 +58,18 @@ class PoolAdapter(Adapter):
 
         lights = data.get("lights")
         if lights is not None:
-            out.append(Control(domain="pool", id="lights", name="Pool Light", kind="toggle", on=bool(lights.get("on"))))
+            color_modes = [m for m in lights.get("available_modes", []) if m not in _PLUMBING_MODES]
+            out.append(
+                Control(
+                    domain="pool",
+                    id="lights",
+                    name="Pool Light",
+                    kind="modes",
+                    on=bool(lights.get("on")),
+                    status=(lights.get("mode") or "off").title(),
+                    options=color_modes,
+                )
+            )
 
         for aux in data.get("auxiliaries", []):
             out.append(
@@ -63,8 +81,14 @@ class PoolAdapter(Adapter):
 
     def command(self, control_id, payload):
         verb = "on" if payload.get("on") else "off"
-        named = {"spa", "pool", "lights"}
-        if control_id in named:
+        if control_id == "jets":
+            self.post_json(f"/api/spa/jets/{verb}", {})
+        elif control_id == "lights":
+            if payload.get("mode"):
+                self.post_json("/api/lights/mode", {"mode": payload["mode"]})
+            else:
+                self.post_json(f"/api/lights/{verb}", {})
+        elif control_id in {"spa", "pool"}:
             self.post_json(f"/api/{control_id}/{verb}", {})
         else:
             self.post_json(f"/api/auxiliary/{quote(control_id, safe='')}/{verb}", {})

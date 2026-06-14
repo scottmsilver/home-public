@@ -13,6 +13,7 @@ def test_control_to_dict_includes_all_fields():
         range=(1, 6),
         status="2 of 4",
         online=True,
+        options=["a", "b"],
     )
     assert c.to_dict() == {
         "domain": "fans",
@@ -22,6 +23,7 @@ def test_control_to_dict_includes_all_fields():
         "on": True,
         "value": 2,
         "range": [1, 6],
+        "options": ["a", "b"],
         "status": "2 of 4",
         "online": True,
     }
@@ -32,3 +34,4 @@ def test_control_defaults():
     d = c.to_dict()
     assert d["on"] is None and d["value"] is None and d["range"] is None
     assert d["status"] is None and d["online"] is True
+    assert d["options"] is None

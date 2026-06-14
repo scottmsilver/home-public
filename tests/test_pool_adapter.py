@@ -12,7 +12,28 @@ SNAP = {
         "spa_heat_progress": {"active": True, "minutes_remaining": 12, "target_temp_f": 102},
         "accessories": {"jets": True},
     },
-    "lights": {"on": False},
+    "lights": {
+        "on": False,
+        "mode": "american",
+        "available_modes": [
+            "off",
+            "on",
+            "set",
+            "sync",
+            "swim",
+            "party",
+            "romantic",
+            "caribbean",
+            "american",
+            "sunset",
+            "royal",
+            "blue",
+            "green",
+            "red",
+            "white",
+            "purple",
+        ],
+    },
     "auxiliaries": [{"id": "water_feature", "name": "Water Feature", "on": False}],
 }
 
@@ -27,7 +48,10 @@ def test_snapshot_maps_pool_spa_lights_aux():
     assert "102" in c["spa"].status  # heating → target
 
     assert c["pool"].kind == "toggle" and c["pool"].on is False and c["pool"].value == 78
-    assert c["lights"].kind == "toggle" and c["lights"].on is False
+    assert c["lights"].kind == "modes" and c["lights"].on is False
+    assert "off" not in c["lights"].options and "on" not in c["lights"].options
+    assert "blue" in c["lights"].options
+    assert c["jets"].kind == "toggle" and c["jets"].on is True
     assert c["water_feature"].kind == "toggle" and c["water_feature"].name == "Water Feature"
 
 
@@ -54,6 +78,31 @@ def test_command_pool_off():
     responses.add(responses.POST, "http://p/api/pool/off", json={"ok": True}, status=200)
     PoolAdapter("http://p").command("pool", {"on": False})
     assert responses.calls[0].request.url.endswith("/api/pool/off")
+
+
+@responses.activate
+def test_command_jets_on():
+    responses.add(responses.POST, "http://p/api/spa/jets/on", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("jets", {"on": True})
+    assert responses.calls[0].request.url.endswith("/api/spa/jets/on")
+
+
+@responses.activate
+def test_command_lights_set_mode():
+    responses.add(responses.POST, "http://p/api/lights/mode", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("lights", {"mode": "blue"})
+    req = responses.calls[0].request
+    assert req.url.endswith("/api/lights/mode")
+    import json as _json
+
+    assert _json.loads(req.body) == {"mode": "blue"}
+
+
+@responses.activate
+def test_command_lights_on():
+    responses.add(responses.POST, "http://p/api/lights/on", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("lights", {"on": True})
+    assert responses.calls[0].request.url.endswith("/api/lights/on")
 
 
 @responses.activate

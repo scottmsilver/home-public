@@ -13,6 +13,7 @@ class Control:
     on: bool | None = None
     value: float | None = None
     range: tuple | None = None
+    options: list | None = None
     status: str | None = None
     online: bool = True
 
@@ -25,6 +26,7 @@ class Control:
             "on": self.on,
             "value": self.value,
             "range": list(self.range) if self.range is not None else None,
+            "options": self.options,
             "status": self.status,
             "online": self.online,
         }
