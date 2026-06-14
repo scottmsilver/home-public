@@ -71,5 +71,29 @@ class FansAdapter(Adapter):
             )
         return out
 
-    def command(self, control_id, payload):  # filled in Task 6
-        raise NotImplementedError
+    def command(self, control_id, payload):
+        on = payload.get("on")
+        value = payload.get("value")
+        if control_id == "fans":
+            body = {}
+            if value is not None:
+                body = {"fanOn": True, "fanSpeed": int(value)}
+            elif on is not None:
+                body = {"fanOn": bool(on)}
+            self.post_json("/api/all", body)
+        elif control_id == "lights":
+            body = {}
+            if value is not None:
+                body = {"lightOn": True, "lightBrightness": int(value)}
+            elif on is not None:
+                body = {"lightOn": bool(on)}
+            self.post_json("/api/all", body)
+        elif control_id == "heaters":
+            data = self.get_json("/api/fans")
+            for h in data.get("heaters", []):
+                if value is not None:
+                    self.post_json(f"/api/heaters/{h['id']}", {"level": int(value)})
+                elif on is not None:
+                    self.post_json(f"/api/heaters/{h['id']}", {"power": bool(on)})
+        else:
+            raise ValueError(f"unknown fans control: {control_id}")
