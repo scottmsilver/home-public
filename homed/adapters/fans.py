@@ -1,5 +1,6 @@
 # homed/adapters/fans.py
 import threading
+from urllib.parse import quote
 
 import websocket
 
@@ -98,9 +99,9 @@ class FansAdapter(Adapter):
             data = self.get_json("/api/fans")
             for h in data.get("heaters", []):
                 if value is not None:
-                    self.post_json(f"/api/heaters/{h['id']}", {"level": int(value)})
+                    self.post_json(f"/api/heaters/{quote(h['id'], safe='')}", {"level": int(value)})
                 elif on is not None:
-                    self.post_json(f"/api/heaters/{h['id']}", {"power": bool(on)})
+                    self.post_json(f"/api/heaters/{quote(h['id'], safe='')}", {"power": bool(on)})
         else:
             raise ValueError(f"unknown fans control: {control_id}")
 

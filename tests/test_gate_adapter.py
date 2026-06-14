@@ -68,6 +68,15 @@ def test_command_default_action_is_unlock():
 
 
 @responses.activate
+def test_command_door_id_is_url_quoted():
+    responses.add(responses.POST, "http://g/unlock/..%2Fadmin", json={"status": "success"}, status=200)
+    GateAdapter("http://g").command("../admin", {"action": "unlock"})
+    url = responses.calls[0].request.url
+    assert "..%2Fadmin" in url
+    assert "/unlock/../admin" not in url
+
+
+@responses.activate
 def test_command_hold_today_passes_end_time():
     responses.add(responses.POST, "http://g/hold/today/front", json={"status": "success"}, status=200)
     GateAdapter("http://g").command("front", {"action": "hold_today", "end_time": "20:30"})

@@ -1,5 +1,6 @@
 # homed/adapters/pool.py
 import threading
+from urllib.parse import quote
 
 import websocket
 
@@ -66,7 +67,7 @@ class PoolAdapter(Adapter):
         if control_id in named:
             self.post_json(f"/api/{control_id}/{verb}", {})
         else:
-            self.post_json(f"/api/auxiliary/{control_id}/{verb}", {})
+            self.post_json(f"/api/auxiliary/{quote(control_id, safe='')}/{verb}", {})
 
     def start(self, on_change):
         self._on_change = on_change
