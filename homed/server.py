@@ -1,0 +1,136 @@
+# homed/server.py
+import json
+from pathlib import Path
+from urllib.parse import urlencode
+
+from flask import Flask, Response, jsonify, make_response, redirect, request
+
+from homed.auth import HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+def _filter_home(state, home_rows):
+    """Order/limit controls to those named by home_rows."""
+    by_id = {(c["domain"], c["id"]): c for c in state["controls"]}
+    out = []
+    for row in home_rows:
+        dom = row["domain"]
+        ids = row.get("groups") or row.get("circuits") or ([row["control"]] if row.get("control") else [])
+        if dom == "gate" and row.get("control") == "unlock":
+            ids = ["gate"]
+        for cid in ids:
+            c = by_id.get((dom, cid))
+            if c:
+                out.append(c)
+    return {"controls": out}
+
+
+def create_app(aggregator, home_rows, web):
+    app = Flask(__name__, static_folder=None)
+    gate = AuthGate(web)
+
+    @app.before_request
+    def _auth():
+        if not gate.is_remote(request.headers.get("Host", "")):
+            return None  # LAN: open
+        if not gate.fully_configured:
+            return jsonify({"error": "remote auth not configured"}), 503
+        if request.path in PUBLIC_PATHS or request.path.startswith("/api/auth/"):
+            return None
+        if not gate.current_user():
+            return jsonify({"error": "not signed in", "authRequired": True}), 401
+        return None
+
+    @app.get("/api/state")
+    def state():
+        return jsonify(aggregator.state())
+
+    @app.get("/api/home")
+    def home():
+        return jsonify(_filter_home(aggregator.state(), home_rows))
+
+    @app.post("/api/command")
+    def command():
+        body = request.get_json(silent=True) or {}
+        try:
+            aggregator.dispatch(body["domain"], body["id"], body.get("payload", {}))
+        except KeyError:
+            return jsonify({"error": "unknown domain or id"}), 400
+        return jsonify({"ok": True})
+
+    @app.get("/api/stream")
+    def stream():
+        q = aggregator.subscribe()
+
+        def gen():
+            try:
+                yield f"data: {json.dumps(aggregator.state())}\n\n"
+                while True:
+                    payload = q.get()
+                    yield f"data: {json.dumps(payload)}\n\n"
+            finally:
+                aggregator.unsubscribe(q)
+
+        return Response(gen(), mimetype="text/event-stream")
+
+    # ── auth dance ───────────────────────────────────────────────
+    @app.get("/api/auth/login")
+    def auth_login():
+        if not gate.fully_configured:
+            return "auth not configured", 503
+        import secrets as _s
+
+        st = _s.token_urlsafe(24)
+        host = request.headers.get("Host", "")
+        scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else request.scheme
+        cb = f"{scheme}://{host}/api/auth/callback?{urlencode({'state': st})}"
+        resp = make_response(redirect(f"{gate.broker_url}/start?{urlencode({'return_url': cb, 'scope': 'openid'})}"))
+        resp.set_cookie(STATE_COOKIE, st, max_age=600, httponly=True, samesite="Lax")
+        return resp
+
+    @app.get("/api/auth/callback")
+    def auth_callback():
+        import secrets as _s
+
+        st = request.args.get("state", "")
+        cookie_st = request.cookies.get(STATE_COOKIE, "")
+        if not st or not cookie_st or not _s.compare_digest(st, cookie_st):
+            return "invalid state", 400
+        email = gate.verify_handoff(request.args.get(HANDOFF_PARAM, ""))
+        if not email:
+            return "invalid handoff", 401
+        if not gate.email_allowed(email):
+            return f"{email} not allowed", 403
+        resp = make_response(redirect("/"))
+        resp.delete_cookie(STATE_COOKIE)
+        resp.set_cookie(SESSION_COOKIE, gate.make_session(email), max_age=SESSION_TTL, httponly=True, samesite="Lax")
+        return resp
+
+    @app.get("/api/auth/me")
+    def auth_me():
+        if not gate.is_remote(request.headers.get("Host", "")) or not gate.fully_configured:
+            return jsonify({"email": None, "authRequired": False})
+        email = gate.current_user()
+        if not email:
+            return jsonify({"authRequired": True}), 401
+        return jsonify({"email": email, "authRequired": True})
+
+    @app.post("/api/auth/logout")
+    def auth_logout():
+        resp = make_response(jsonify({"ok": True}))
+        resp.delete_cookie(SESSION_COOKIE)
+        return resp
+
+    # ── static SPA (Plan 2 fills static/index.html) ──────────────
+    @app.get("/")
+    @app.get("/<path:path>")
+    def spa(path="index.html"):
+        f = STATIC_DIR / path
+        if not f.is_file():
+            f = STATIC_DIR / "index.html"
+        if not f.is_file():
+            return "home gateway (UI not built yet)", 200
+        return f.read_text(), 200, {"Content-Type": "text/html"}
+
+    return app
