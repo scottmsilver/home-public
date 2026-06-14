@@ -24,7 +24,7 @@ class FansAdapter(Adapter):
 
         # All Fans (speed)
         on_fans = [f for f in fans if f.get("state", {}).get("fanOn")]
-        speeds = [f["state"].get("fanSpeed") for f in on_fans if f["state"].get("fanSpeed")]
+        speeds = [f["state"].get("fanSpeed") for f in on_fans if f["state"].get("fanSpeed") is not None]
         out.append(
             Control(
                 domain="fans",
@@ -41,7 +41,9 @@ class FansAdapter(Adapter):
 
         # All Lights (slider)
         on_lights = [f for f in fans if f.get("state", {}).get("lightOn")]
-        brights = [f["state"].get("lightBrightness") for f in on_lights if f["state"].get("lightBrightness")]
+        brights = [
+            f["state"].get("lightBrightness") for f in on_lights if f["state"].get("lightBrightness") is not None
+        ]
         out.append(
             Control(
                 domain="fans",
@@ -59,7 +61,7 @@ class FansAdapter(Adapter):
         # All Heaters (slider) — only if present
         if heaters:
             on_h = [h for h in heaters if h.get("state", {}).get("on")]
-            levels = [h["state"].get("level") for h in on_h if h["state"].get("level")]
+            levels = [h["state"].get("level") for h in on_h if h["state"].get("level") is not None]
             out.append(
                 Control(
                     domain="fans",
