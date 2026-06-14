@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.superpowers/
+# instance-specific (never in the public repo)
+home.toml
+~/.home/
+.venv/
+venv/

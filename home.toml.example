@@ -1,0 +1,29 @@
+# Backend daemon base URLs — supplied per deployment, never hardcoded.
+[backends.gate]
+base_url     = "http://127.0.0.1:8000"
+service_user = "home-gateway@local"   # injected as X-Verified-User
+
+[backends.pool]
+base_url = "http://127.0.0.1:8080"
+
+[backends.fans]
+base_url = "http://127.0.0.1:8095"
+
+[web]
+bind           = "0.0.0.0:8099"
+remote_domain  = ""                    # e.g. "home.i.oursilverfamily.com"; empty = LAN-only
+broker_url     = "https://auth.oursilverfamily.com"
+allowed_emails = []                    # e.g. ["you@gmail.com"]
+
+# Which controls surface on the unified Home card.
+[[home.rows]]
+domain  = "gate"
+control = "unlock"
+
+[[home.rows]]
+domain   = "pool"
+circuits = ["spa", "pool"]
+
+[[home.rows]]
+domain = "fans"
+groups = ["fans", "lights"]
