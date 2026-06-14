@@ -78,8 +78,10 @@ def test_home_endpoint_gate_doors_by_name():
 
         def snapshot(self):
             return [
-                Control("gate", "gate", "Gate", "momentary"),
-                Control("gate", "side_door", "Side Door", "momentary"),
+                Control("gate", "door-vehicle", "Gate", "momentary", status="Open"),
+                Control("gate", "door-ped", "Side Door", "momentary", status="Locked"),
+                # synthetic aggregate: id == domain, collides on name "Gate"
+                Control("gate", "gate", "Gate", "momentary", status="1 locked"),
             ]
 
         def command(self, cid, payload):
@@ -92,8 +94,10 @@ def test_home_endpoint_gate_doors_by_name():
     agg.refresh_all()
     app = create_app(agg, home_rows=[{"domain": "gate", "doors": ["Gate"]}], web={})
     client = app.test_client()
-    ids = [c["id"] for c in client.get("/api/home").get_json()["controls"]]
-    assert ids == ["gate"]
+    controls = client.get("/api/home").get_json()["controls"]
+    # must resolve to the real door, NOT the synthetic aggregate
+    assert [c["id"] for c in controls] == ["door-vehicle"]
+    assert controls[0]["status"] == "Open"
 
 
 def test_command_endpoint_dispatches():

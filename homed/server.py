@@ -21,7 +21,9 @@ def _filter_home(state, home_rows):
         if dom == "gate" and row.get("control") == "unlock":
             ids = ["gate"]
         if dom == "gate" and row.get("doors"):
-            by_name = {c["name"]: c["id"] for c in state["controls"] if c["domain"] == "gate"}
+            # Map door name -> id, EXCLUDING the synthetic aggregate (id == domain)
+            # so real doors win the name match (the aggregate shares name "Gate").
+            by_name = {c["name"]: c["id"] for c in state["controls"] if c["domain"] == "gate" and c["id"] != "gate"}
             ids = [by_name[name] for name in row["doors"] if name in by_name]
         for cid in ids:
             c = by_id.get((dom, cid))
