@@ -115,6 +115,22 @@ def test_command_spa_setpoint():
 
 
 @responses.activate
+def test_command_spa_setpoint_clamps_to_range():
+    responses.add(responses.POST, "http://p/api/spa/heat", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("spa_setpoint", {"setpoint": 200})
+    import json as _json
+
+    assert _json.loads(responses.calls[0].request.body) == {"setpoint": 104}
+
+
+def test_command_spa_setpoint_rejects_bad_input():
+    import pytest
+
+    with pytest.raises(ValueError):
+        PoolAdapter("http://p").command("spa_setpoint", {})
+
+
+@responses.activate
 def test_command_lights_set_mode():
     responses.add(responses.POST, "http://p/api/lights/mode", json={"ok": True}, status=200)
     PoolAdapter("http://p").command("lights", {"mode": "blue"})
