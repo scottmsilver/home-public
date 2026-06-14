@@ -39,6 +39,8 @@ class Aggregator:
 
     # ── pub/sub for SSE ──────────────────────────────────────────
     def subscribe(self) -> queue.Queue:
+        # Lifecycle: caller MUST call unsubscribe(q) (e.g. in a finally) when the
+        # consumer disconnects, or dead queues accumulate.
         q = queue.Queue(maxsize=8)
         with self._lock:
             self._subscribers.add(q)
