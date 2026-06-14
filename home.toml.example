@@ -22,7 +22,7 @@ doors  = ["Gate"]
 
 [[home.rows]]
 domain   = "pool"
-circuits = ["spa", "jets", "lights"]
+circuits = ["spa", "spa_setpoint", "lights"]
 
 [[home.rows]]
 domain = "fans"

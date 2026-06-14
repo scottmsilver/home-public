@@ -20,27 +20,40 @@ class PoolAdapter(Adapter):
 
         spa = data.get("spa")
         if spa is not None:
+            spa_on = bool(spa.get("on"))
+            jets_on = bool((spa.get("accessories") or {}).get("jets"))
+            spa_mode = "jets" if (spa_on and jets_on) else ("spa" if spa_on else "off")
+            temp = spa.get("temperature")
             prog = spa.get("spa_heat_progress") or {}
             if prog.get("active") and prog.get("target_temp_f"):
                 mins = prog.get("minutes_remaining")
-                status = f"Heating → {prog['target_temp_f']}°" + (f" ({mins}m)" if mins else "")
+                heat = f"Heating → {prog['target_temp_f']}°" + (f" ({mins}m)" if mins else "")
             else:
-                status = "On" if spa.get("on") else "Off"
+                heat = "On" if spa_on else "Off"
+            status = f"{temp}° · {heat}" if temp is not None else heat
             out.append(
                 Control(
                     domain="pool",
                     id="spa",
                     name="Spa",
-                    kind="toggle",
-                    on=bool(spa.get("on")),
-                    value=spa.get("temperature"),
+                    kind="segmented",
+                    options=["off", "spa", "jets"],
+                    mode=spa_mode,
+                    on=spa_on,
+                    value=temp,
                     status=status,
                 )
             )
-
-            accessories = spa.get("accessories", {})
-            if "jets" in accessories:
-                out.append(Control(domain="pool", id="jets", name="Jets", kind="toggle", on=bool(accessories["jets"])))
+            out.append(
+                Control(
+                    domain="pool",
+                    id="spa_setpoint",
+                    name="Setpoint",
+                    kind="setpoint",
+                    value=spa.get("setpoint"),
+                    range=(40, 104),
+                )
+            )
 
         pool = data.get("pool")
         if pool is not None:
@@ -68,6 +81,7 @@ class PoolAdapter(Adapter):
                     on=bool(lights.get("on")),
                     status=(lights.get("mode") or "off").title(),
                     options=color_modes,
+                    mode=(lights.get("mode") or "off"),
                 )
             )
 
@@ -81,15 +95,24 @@ class PoolAdapter(Adapter):
 
     def command(self, control_id, payload):
         verb = "on" if payload.get("on") else "off"
-        if control_id == "jets":
-            self.post_json(f"/api/spa/jets/{verb}", {})
+        if control_id == "spa":
+            state = payload.get("state")
+            if state == "off":
+                self.post_json("/api/spa/off", {})
+            elif state == "spa":
+                self.post_json("/api/spa/on", {})
+                self.post_json("/api/spa/jets/off", {})
+            elif state == "jets":
+                self.post_json("/api/spa/jets/on", {})
+        elif control_id == "spa_setpoint":
+            self.post_json("/api/spa/heat", {"setpoint": int(payload["setpoint"])})
         elif control_id == "lights":
             if payload.get("mode"):
                 self.post_json("/api/lights/mode", {"mode": payload["mode"]})
             else:
                 self.post_json(f"/api/lights/{verb}", {})
-        elif control_id in {"spa", "pool"}:
-            self.post_json(f"/api/{control_id}/{verb}", {})
+        elif control_id == "pool":
+            self.post_json(f"/api/pool/{verb}", {})
         else:
             self.post_json(f"/api/auxiliary/{quote(control_id, safe='')}/{verb}", {})
 

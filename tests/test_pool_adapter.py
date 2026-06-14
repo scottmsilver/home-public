@@ -43,15 +43,22 @@ def test_snapshot_maps_pool_spa_lights_aux():
     responses.add(responses.GET, "http://p/api/pool", json=SNAP, status=200)
     c = {x.id: x for x in PoolAdapter("http://p").snapshot()}
 
-    assert c["spa"].kind == "toggle" and c["spa"].on is True
+    assert c["spa"].kind == "segmented" and c["spa"].on is True
+    assert c["spa"].options == ["off", "spa", "jets"]
+    assert c["spa"].mode in ("off", "spa", "jets")
     assert c["spa"].value == 88
     assert "102" in c["spa"].status  # heating → target
 
+    assert c["spa_setpoint"].kind == "setpoint"
+    assert c["spa_setpoint"].range == (40, 104)
+    assert c["spa_setpoint"].value == 102
+
     assert c["pool"].kind == "toggle" and c["pool"].on is False and c["pool"].value == 78
     assert c["lights"].kind == "modes" and c["lights"].on is False
+    assert c["lights"].mode == "american"
     assert "off" not in c["lights"].options and "on" not in c["lights"].options
     assert "blue" in c["lights"].options
-    assert c["jets"].kind == "toggle" and c["jets"].on is True
+    assert "jets" not in c
     assert c["water_feature"].kind == "toggle" and c["water_feature"].name == "Water Feature"
 
 
@@ -67,13 +74,6 @@ def test_snapshot_tolerates_null_bodies():
 
 
 @responses.activate
-def test_command_spa_on():
-    responses.add(responses.POST, "http://p/api/spa/on", json={"ok": True}, status=200)
-    PoolAdapter("http://p").command("spa", {"on": True})
-    assert responses.calls[0].request.url.endswith("/api/spa/on")
-
-
-@responses.activate
 def test_command_pool_off():
     responses.add(responses.POST, "http://p/api/pool/off", json={"ok": True}, status=200)
     PoolAdapter("http://p").command("pool", {"on": False})
@@ -81,10 +81,37 @@ def test_command_pool_off():
 
 
 @responses.activate
-def test_command_jets_on():
+def test_command_spa_segmented_jets():
     responses.add(responses.POST, "http://p/api/spa/jets/on", json={"ok": True}, status=200)
-    PoolAdapter("http://p").command("jets", {"on": True})
+    PoolAdapter("http://p").command("spa", {"state": "jets"})
     assert responses.calls[0].request.url.endswith("/api/spa/jets/on")
+
+
+@responses.activate
+def test_command_spa_segmented_off():
+    responses.add(responses.POST, "http://p/api/spa/off", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("spa", {"state": "off"})
+    assert responses.calls[0].request.url.endswith("/api/spa/off")
+
+
+@responses.activate
+def test_command_spa_segmented_spa():
+    responses.add(responses.POST, "http://p/api/spa/on", json={"ok": True}, status=200)
+    responses.add(responses.POST, "http://p/api/spa/jets/off", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("spa", {"state": "spa"})
+    assert responses.calls[0].request.url.endswith("/api/spa/on")
+    assert responses.calls[1].request.url.endswith("/api/spa/jets/off")
+
+
+@responses.activate
+def test_command_spa_setpoint():
+    responses.add(responses.POST, "http://p/api/spa/heat", json={"ok": True}, status=200)
+    PoolAdapter("http://p").command("spa_setpoint", {"setpoint": 102})
+    req = responses.calls[0].request
+    assert req.url.endswith("/api/spa/heat")
+    import json as _json
+
+    assert _json.loads(req.body) == {"setpoint": 102}
 
 
 @responses.activate
