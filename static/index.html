@@ -268,6 +268,29 @@ input[type=range]::-moz-range-thumb {
 .tri button:active { transform: scale(.95); }
 .tri button[disabled] { opacity: .5; cursor: default; }
 
+/* unifi-style gate door control: "Open" label + Once / Until / Forever row */
+.gate-open-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .6px;
+  color: var(--label2); text-transform: uppercase; margin: 8px 0 8px;
+}
+.gate-actions { display: flex; gap: 8px; }
+.gate-btn {
+  flex: 1; min-width: 0; padding: 11px 6px; border-radius: 12px;
+  background: var(--fill); border: none; color: var(--label);
+  font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s ease-out, color .15s ease-out, box-shadow .15s ease-out, transform .12s ease-out;
+}
+.gate-btn:active { transform: scale(.95); }
+.gate-btn[disabled] { opacity: .5; cursor: default; }
+.gate-btn.held {
+  background: rgba(48,209,88,.18); color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+.gate-btn.busy { background: rgba(48,209,88,.25); color: var(--green); box-shadow: none; }
+
 /* setpoint stepper (inline +/- around a big value) */
 .stepper { display: flex; align-items: center; gap: 14px; }
 .step-btn {
@@ -420,7 +443,7 @@ function KindBody({ control, command, iconNode, onHome, bare }) {
   if (k === "modes") return <ModesRow control={control} command={command} iconNode={iconNode} bare={bare} />;
   if (k === "segmented") return <SegmentedRow control={control} command={command} iconNode={iconNode} />;
   if (k === "setpoint") return <SetpointRow control={control} command={command} iconNode={iconNode} />;
-  if (k === "tristate") return <TristateRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "tristate") return <TristateRow control={control} command={command} iconNode={iconNode} bare={bare} />;
   return <ReadoutRow control={control} iconNode={iconNode} />;
 }
 
@@ -671,9 +694,11 @@ function SetpointRow({ control, command, iconNode }) {
   );
 }
 
-// Gate: Once / Forever / Timed tri-switch.
-function TristateRow({ control, command, iconNode }) {
-  const [busy, setBusy] = useState(false);        // brief highlight for the Once pulse
+// Gate: unifi-style Once / Until / Forever door control.
+// `bare` omits the icon + name + status line (used inside the Gate summary
+// card whose header + badge already convey the door's name + lock state).
+function TristateRow({ control, command, iconNode, bare }) {
+  const [busy, setBusy] = useState(false);        // brief tap feedback for the Once pulse
   const [sheet, setSheet] = useState(false);
   const mode = control.mode || null;              // "forever" | "timed" | null
 
@@ -690,8 +715,15 @@ function TristateRow({ control, command, iconNode }) {
     else setSheet(true);
   };
 
+  // "Until" label: when held-today, show the end time from status
+  // ("Held until 8:00 PM" → "Until 8:00 PM"); otherwise a sensible default.
+  const untilLabel = mode === "timed" && control.status
+    ? control.status.replace(/^Held until /i, "Until ")
+    : "Until 6:00 PM";
+
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
+      {bare ? null : (
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <IconBtn control={control} iconNode={iconNode} onClick={once} disabled={!control.online} />
         <div className="ctl-main">
@@ -700,25 +732,15 @@ function TristateRow({ control, command, iconNode }) {
         </div>
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
-      <div className="tri">
-        {(control.options || ["once", "timed", "forever"]).map((opt) => {
-          // Labels match the unifi-gate app: Once / Until / Forever.
-          const label = opt === "timed" ? "Until" : opt.charAt(0).toUpperCase() + opt.slice(1);
-          if (opt === "once")
-            return (
-              <button key={opt} className={busy ? "busy" : ""} disabled={!control.online}
-                      onClick={once}>{busy ? <span className="spin" /> : label}</button>
-            );
-          if (opt === "timed")
-            return (
-              <button key={opt} className={mode === "timed" ? "on" : ""} disabled={!control.online}
-                      onClick={timed}>{label}</button>
-            );
-          return (
-            <button key={opt} className={mode === "forever" ? "on" : ""} disabled={!control.online}
-                    onClick={forever}>{label}</button>
-          );
-        })}
+      )}
+      <div className="gate-open-label" style={bare ? { marginTop: 0 } : undefined}>Open</div>
+      <div className="gate-actions">
+        <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!control.online}
+                onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
+        <button className={"gate-btn" + (mode === "timed" ? " held" : "")} disabled={!control.online}
+                onClick={timed}>{untilLabel}</button>
+        <button className={"gate-btn" + (mode === "forever" ? " held" : "")} disabled={!control.online}
+                onClick={forever}>Forever</button>
       </div>
       {sheet ? (
         <GateHoldSheet control={control} command={command} onClose={() => setSheet(false)} />
@@ -826,11 +848,16 @@ function SectionCard({ title, controls, command }) {
   const badge = sectionBadge(title, controls);
   const tl = (title || "").toLowerCase();
   const isLightCard = tl.indexOf("light") !== -1 && tl.indexOf("pool") !== -1;
+  // In the Gate summary card the header (title) + badge (lock state) already
+  // convey name + status, so a lone gate door renders bare (buttons only).
+  const isGateCard = tl.indexOf("gate") !== -1;
+  const singleTristate = controls.length === 1 && controls[0].kind === "tristate";
 
   const rows = controls.map((c) => {
     // In the Pool Light card, the header already conveys name + mode, so the
     // ModesRow is rendered gallery-only (no redundant label line).
-    const bare = isLightCard && c.kind === "modes";
+    const bare = (isLightCard && c.kind === "modes") ||
+                 (isGateCard && singleTristate && c.kind === "tristate");
     return (
       <ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome bare={bare} />
     );
