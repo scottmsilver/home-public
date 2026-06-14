@@ -17,12 +17,12 @@ allowed_emails = []                    # e.g. ["you@gmail.com"]
 
 # Which controls surface on the unified Home card.
 [[home.rows]]
-domain  = "gate"
-control = "unlock"
+domain = "gate"
+doors  = ["Gate"]
 
 [[home.rows]]
 domain   = "pool"
-circuits = ["spa", "pool"]
+circuits = ["spa", "jets", "lights"]
 
 [[home.rows]]
 domain = "fans"

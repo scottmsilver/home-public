@@ -72,6 +72,30 @@ def test_home_endpoint_filters_by_rows():
     assert ids == ["fans"]
 
 
+def test_home_endpoint_gate_doors_by_name():
+    class GateAdapter:
+        domain = "gate"
+
+        def snapshot(self):
+            return [
+                Control("gate", "gate", "Gate", "momentary"),
+                Control("gate", "side_door", "Side Door", "momentary"),
+            ]
+
+        def command(self, cid, payload):
+            pass
+
+        def start(self, on_change):
+            pass
+
+    agg = Aggregator({"gate": GateAdapter()})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[{"domain": "gate", "doors": ["Gate"]}], web={})
+    client = app.test_client()
+    ids = [c["id"] for c in client.get("/api/home").get_json()["controls"]]
+    assert ids == ["gate"]
+
+
 def test_command_endpoint_dispatches():
     client, adapter = make_client()
     r = client.post("/api/command", json={"domain": "fans", "id": "fans", "payload": {"on": True}})

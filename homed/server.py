@@ -20,6 +20,9 @@ def _filter_home(state, home_rows):
         ids = row.get("groups") or row.get("circuits") or ([row["control"]] if row.get("control") else [])
         if dom == "gate" and row.get("control") == "unlock":
             ids = ["gate"]
+        if dom == "gate" and row.get("doors"):
+            by_name = {c["name"]: c["id"] for c in state["controls"] if c["domain"] == "gate"}
+            ids = [by_name[name] for name in row["doors"] if name in by_name]
         for cid in ids:
             c = by_id.get((dom, cid))
             if c:
