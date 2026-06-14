@@ -14,6 +14,7 @@ def test_control_to_dict_includes_all_fields():
         status="2 of 4",
         online=True,
         options=["a", "b"],
+        mode="b",
     )
     assert c.to_dict() == {
         "domain": "fans",
@@ -24,6 +25,7 @@ def test_control_to_dict_includes_all_fields():
         "value": 2,
         "range": [1, 6],
         "options": ["a", "b"],
+        "mode": "b",
         "status": "2 of 4",
         "online": True,
     }
@@ -35,3 +37,10 @@ def test_control_defaults():
     assert d["on"] is None and d["value"] is None and d["range"] is None
     assert d["status"] is None and d["online"] is True
     assert d["options"] is None
+    assert d["mode"] is None
+
+
+def test_mode_round_trips():
+    c = Control(domain="pool", id="spa", name="Spa", kind="segmented", mode="jets")
+    assert c.mode == "jets"
+    assert c.to_dict()["mode"] == "jets"
