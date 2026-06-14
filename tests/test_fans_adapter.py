@@ -81,3 +81,11 @@ def test_ws_message_triggers_on_change(monkeypatch):
     a._on_change = lambda: hits.append(1)
     a._handle_ws_message("{}")
     assert hits == [1]
+
+
+def test_start_spawns_thread_without_error(monkeypatch):
+    import homed.adapters.fans as fansmod
+
+    monkeypatch.setattr(fansmod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    t = FansAdapter("http://f").start(lambda: None)
+    assert t is not None
