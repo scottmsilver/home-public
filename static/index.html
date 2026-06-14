@@ -701,12 +701,24 @@ function TristateRow({ control, command, iconNode }) {
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
       <div className="tri">
-        <button className={busy ? "busy" : ""} disabled={!control.online}
-                onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
-        <button className={mode === "forever" ? "on" : ""} disabled={!control.online}
-                onClick={forever}>Forever</button>
-        <button className={mode === "timed" ? "on" : ""} disabled={!control.online}
-                onClick={timed}>Timed</button>
+        {(control.options || ["once", "timed", "forever"]).map((opt) => {
+          // Labels match the unifi-gate app: Once / Until / Forever.
+          const label = opt === "timed" ? "Until" : opt.charAt(0).toUpperCase() + opt.slice(1);
+          if (opt === "once")
+            return (
+              <button key={opt} className={busy ? "busy" : ""} disabled={!control.online}
+                      onClick={once}>{busy ? <span className="spin" /> : label}</button>
+            );
+          if (opt === "timed")
+            return (
+              <button key={opt} className={mode === "timed" ? "on" : ""} disabled={!control.online}
+                      onClick={timed}>{label}</button>
+            );
+          return (
+            <button key={opt} className={mode === "forever" ? "on" : ""} disabled={!control.online}
+                    onClick={forever}>{label}</button>
+          );
+        })}
       </div>
       {sheet ? (
         <GateHoldSheet control={control} command={command} onClose={() => setSheet(false)} />
