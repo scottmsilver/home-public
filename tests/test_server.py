@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from homed.aggregator import Aggregator
 from homed.model import Control
@@ -29,12 +30,32 @@ class FakeAdapter:
         pass
 
 
+class FailingAdapter:
+    domain = "gate"
+
+    def snapshot(self):
+        return [Control("gate", "front", "Front Door", "lock", on=True)]
+
+    def command(self, cid, payload):
+        raise requests.HTTPError("500 Server Error: backend daemon failed")
+
+    def start(self, on_change):
+        pass
+
+
 def make_client(home_rows=None, web=None):
     adapter = FakeAdapter()
     agg = Aggregator({"fans": adapter})
     agg.refresh_all()
     app = create_app(agg, home_rows=home_rows or [{"domain": "fans", "groups": ["fans"]}], web=web or {})
     return app.test_client(), adapter
+
+
+def make_client_with_failing_adapter():
+    agg = Aggregator({"gate": FailingAdapter()})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    return app.test_client()
 
 
 def test_state_endpoint():
@@ -62,6 +83,13 @@ def test_command_unknown_domain_returns_400():
     client, _ = make_client()
     r = client.post("/api/command", json={"domain": "nope", "id": "x", "payload": {}})
     assert r.status_code == 400
+
+
+def test_command_backend_failure_returns_502():
+    client = make_client_with_failing_adapter()
+    r = client.post("/api/command", json={"domain": "gate", "id": "front", "payload": {}})
+    assert r.status_code == 502
+    assert "error" in r.get_json()
 
 
 def test_lan_request_open_when_remote_domain_set():
