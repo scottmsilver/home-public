@@ -44,8 +44,28 @@ class GateAdapter(Adapter):
         )
         return out
 
-    def command(self, control_id, payload):  # filled in Task 12
-        raise NotImplementedError
+    def command(self, control_id, payload):
+        action = payload.get("action", "unlock")
+        if control_id == "gate":
+            for d in self.get_json("/devices"):
+                self._door_action(d["id"], action, payload)
+        else:
+            self._door_action(control_id, action, payload)
+
+    def _door_action(self, door_id, action, payload):
+        if action == "unlock":
+            self.post_json(f"/unlock/{door_id}", {})
+        elif action == "hold_today":
+            body = {}
+            if payload.get("end_time"):
+                body["end_time"] = payload["end_time"]
+            self.post_json(f"/hold/today/{door_id}", body)
+        elif action == "hold_forever":
+            self.post_json(f"/hold/forever/{door_id}", {})
+        elif action == "stop":
+            self.post_json(f"/hold/stop/{door_id}", {})
+        else:
+            raise ValueError(f"unknown gate action: {action}")
 
     # polling upstream (no client WS on unifi-gate)
     def start(self, on_change):
