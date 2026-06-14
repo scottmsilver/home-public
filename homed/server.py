@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 
-from flask import Flask, Response, jsonify, make_response, redirect, request
+from flask import Flask, Response, jsonify, make_response, redirect, request, send_from_directory
+from werkzeug.utils import safe_join
 
 from homed.auth import HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
 
@@ -29,6 +30,9 @@ def _filter_home(state, home_rows):
 def create_app(aggregator, home_rows, web):
     app = Flask(__name__, static_folder=None)
     gate = AuthGate(web)
+
+    def _https():
+        return request.headers.get("x-forwarded-proto") == "https" or request.scheme == "https"
 
     @app.before_request
     def _auth():
@@ -86,7 +90,7 @@ def create_app(aggregator, home_rows, web):
         scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else request.scheme
         cb = f"{scheme}://{host}/api/auth/callback?{urlencode({'state': st})}"
         resp = make_response(redirect(f"{gate.broker_url}/start?{urlencode({'return_url': cb, 'scope': 'openid'})}"))
-        resp.set_cookie(STATE_COOKIE, st, max_age=600, httponly=True, samesite="Lax")
+        resp.set_cookie(STATE_COOKIE, st, max_age=600, httponly=True, secure=_https(), samesite="Lax", path="/")
         return resp
 
     @app.get("/api/auth/callback")
@@ -103,8 +107,16 @@ def create_app(aggregator, home_rows, web):
         if not gate.email_allowed(email):
             return f"{email} not allowed", 403
         resp = make_response(redirect("/"))
-        resp.delete_cookie(STATE_COOKIE)
-        resp.set_cookie(SESSION_COOKIE, gate.make_session(email), max_age=SESSION_TTL, httponly=True, samesite="Lax")
+        resp.delete_cookie(STATE_COOKIE, path="/")
+        resp.set_cookie(
+            SESSION_COOKIE,
+            gate.make_session(email),
+            max_age=SESSION_TTL,
+            httponly=True,
+            secure=_https(),
+            samesite="Lax",
+            path="/",
+        )
         return resp
 
     @app.get("/api/auth/me")
@@ -119,18 +131,19 @@ def create_app(aggregator, home_rows, web):
     @app.post("/api/auth/logout")
     def auth_logout():
         resp = make_response(jsonify({"ok": True}))
-        resp.delete_cookie(SESSION_COOKIE)
+        resp.delete_cookie(SESSION_COOKIE, path="/")
         return resp
 
     # ── static SPA (Plan 2 fills static/index.html) ──────────────
     @app.get("/")
     @app.get("/<path:path>")
     def spa(path="index.html"):
-        f = STATIC_DIR / path
-        if not f.is_file():
-            f = STATIC_DIR / "index.html"
-        if not f.is_file():
-            return "home gateway (UI not built yet)", 200
-        return f.read_text(), 200, {"Content-Type": "text/html"}
+        target = path or "index.html"
+        safe = safe_join(str(STATIC_DIR), target)
+        if safe and Path(safe).is_file():
+            return send_from_directory(STATIC_DIR, target)
+        if (STATIC_DIR / "index.html").is_file():
+            return send_from_directory(STATIC_DIR, "index.html")
+        return "home gateway (UI not built yet)", 200
 
     return app

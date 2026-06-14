@@ -78,3 +78,25 @@ def test_remote_request_without_cookie_blocked():
     )
     r = client.get("/api/state", headers={"Host": "home.example.com"})
     assert r.status_code == 401
+
+
+def test_static_path_traversal_blocked():
+    client, _ = make_client()
+    for path in ("/../homed/server.py", "/..%2Fhomed%2Fserver.py"):
+        r = client.get(path)
+        # Must never leak the server source. Either falls through to SPA index/stub (200)
+        # or 404 — but the body must not contain the source.
+        assert b"def create_app" not in r.get_data()
+        assert r.status_code in (200, 404)
+
+
+def test_auth_callback_rejects_bad_state():
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    # Remote host + no matching state cookie → 400 regardless of handoff token.
+    r = client.get(
+        "/api/auth/callback?state=x&silver_oauth=anything",
+        headers={"Host": "home.example.com"},
+    )
+    assert r.status_code == 400
