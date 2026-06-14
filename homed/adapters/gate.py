@@ -18,12 +18,14 @@ def _door_view(d):
             return "timed", f"Held until {t}"
         return "timed", "Held (timed)"
     if d.get("lock_state") == "lock":
-        return None, "Locked"
+        return None, "Closed"
     if d.get("lock_state") == "unlock":
-        return None, "Unlocked"
+        return None, "Open"
     # Older daemons / synthetic aggregate have no lock_state: fall back to the
     # flattened position-based status.
-    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
+    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(
+        d.get("status"), "Unknown"
+    )
     return None, lock
 
 
