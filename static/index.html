@@ -354,13 +354,6 @@ input[type=range]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 .spa-set-arrow { color: var(--label2); font-size: 14px; }
-/* light gallery divider label inside the spa card */
-.spa-light-label {
-  font-size: 12px; font-weight: 700; letter-spacing: .6px;
-  color: var(--label2); text-transform: uppercase;
-  margin-top: 18px; padding-top: 14px;
-  border-top: 1px solid rgba(255,255,255,.08);
-}
 /* spa setpoint bottom sheet stepper */
 .spa-sheet-val { font-size: 68px; font-weight: 700; color: var(--label); letter-spacing: -3px; line-height: 1; }
 .spa-sheet-deg { font-size: 26px; color: var(--label2); font-weight: 400; }
@@ -377,13 +370,11 @@ input[type=range]::-moz-range-thumb {
 
 /* pentair-style color swatch gallery */
 .swatches {
-  display: flex; gap: 12px; margin-top: 12px;
-  overflow-x: auto; padding: 2px 2px 6px;
-  scrollbar-width: none; -ms-overflow-style: none;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 12px; justify-items: center; margin-top: 12px; padding: 2px;
 }
-.swatches::-webkit-scrollbar { display: none; }
 .swatch {
-  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+  width: 50px; height: 50px; border-radius: 50%;
   border: 2px solid rgba(255,255,255,.15); cursor: pointer; padding: 0;
   display: flex; align-items: center; justify-content: center;
   color: var(--label2);
@@ -952,10 +943,7 @@ function SpaCard({ title, controls, command }) {
       ) : null}
 
       {lights ? (
-        <React.Fragment>
-          <div className="spa-light-label">Light</div>
-          <ModesRow control={lights} command={command} bare />
-        </React.Fragment>
+        <ModesRow control={lights} command={command} bare />
       ) : null}
 
       {sheet && setpoint ? (
