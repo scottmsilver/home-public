@@ -61,6 +61,9 @@ def create_app(aggregator, home_rows, web):
             aggregator.dispatch(body["domain"], body["id"], body.get("payload", {}))
         except KeyError:
             return jsonify({"error": "unknown domain or id"}), 400
+        except Exception as e:
+            app.logger.warning("command failed: %s", e)
+            return jsonify({"error": "backend command failed"}), 502
         return jsonify({"ok": True})
 
     @app.get("/api/stream")
