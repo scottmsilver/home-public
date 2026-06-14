@@ -7,10 +7,18 @@ from homed.adapters.base import Adapter
 from homed.model import Control
 
 
-def _door_status(d):
-    if d.get("is_held"):
-        return "Held open"
-    return {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
+def _door_view(d):
+    hs = d.get("hold_state")
+    if hs == "hold_forever":
+        return "forever", "Held open"
+    if hs == "hold_today":
+        exp = d.get("expires_at")
+        if exp:
+            t = time.strftime("%-I:%M %p", time.localtime(exp))
+            return "timed", f"Held until {t}"
+        return "timed", "Held (timed)"
+    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
+    return None, lock
 
 
 class GateAdapter(Adapter):
@@ -20,14 +28,17 @@ class GateAdapter(Adapter):
         doors = self.get_json("/devices")
         out = []
         for d in doors:
+            mode, status = _door_view(d)
             out.append(
                 Control(
                     domain="gate",
                     id=d["id"],
                     name=d.get("name", d["id"]),
-                    kind="momentary",
+                    kind="tristate",
+                    options=["once", "forever", "timed"],
+                    mode=mode,
                     on=bool(d.get("is_held")),
-                    status=_door_status(d),
+                    status=status,
                     online=bool(d.get("is_online", True)),
                 )
             )
