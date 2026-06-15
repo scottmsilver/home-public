@@ -15,6 +15,7 @@ class Control:
     range: tuple | None = None
     options: list | None = None
     mode: str | None = None
+    offline: int = 0
     status: str | None = None
     online: bool = True
 
@@ -29,6 +30,7 @@ class Control:
             "range": list(self.range) if self.range is not None else None,
             "options": self.options,
             "mode": self.mode,
+            "offline": self.offline,
             "status": self.status,
             "online": self.online,
         }

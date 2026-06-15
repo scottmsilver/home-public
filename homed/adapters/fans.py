@@ -35,6 +35,7 @@ class FansAdapter(Adapter):
                 on=bool(on_fans),
                 value=_shared(speeds) if speeds else None,
                 range=(1, 6),
+                offline=sum(1 for f in fans if not f.get("online", True)),
                 status=f"{len(on_fans)} of {len(fans)}" if fans else None,
                 online=any(f.get("online") for f in fans) if fans else False,
             )
@@ -54,6 +55,7 @@ class FansAdapter(Adapter):
                 on=bool(on_lights),
                 value=_shared(brights) if brights else None,
                 range=(1, 100),
+                offline=sum(1 for f in fans if not f.get("online", True)),
                 status=f"{len(on_lights)} of {len(fans)}" if fans else None,
                 online=any(f.get("online") for f in fans) if fans else False,
             )
@@ -72,6 +74,7 @@ class FansAdapter(Adapter):
                     on=bool(on_h),
                     value=_shared(levels) if levels else None,
                     range=(1, 100),
+                    offline=sum(1 for h in heaters if not h.get("online", True)),
                     status=f"{len(on_h)} of {len(heaters)}",
                     online=any(h.get("online") for h in heaters),
                 )
