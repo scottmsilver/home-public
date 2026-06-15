@@ -392,6 +392,18 @@ input[type=range]::-moz-range-thumb {
 }
 .swatch svg { width: 22px; height: 22px; display: block; }
 .swatch[disabled] { opacity: .5; cursor: default; }
+/* Chevron affordance on the main expand/collapse circle. */
+.swatch .chev {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--card, #1c1c1e); color: var(--label2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1; font-weight: 700;
+  border: 1px solid rgba(255,255,255,.2);
+  transition: transform .18s ease-out;
+}
+.swatch.expander { position: relative; }
+.swatch.expander.open .chev { transform: rotate(90deg); }
 </style>
 </head>
 <body>
@@ -758,14 +770,32 @@ function ModesRow({ control, command, iconNode, bare }) {
   // Spa card). The .swatches CSS default is 12px; bump it to ~19px.
   const swatchesStyle = { marginTop: 19 };
 
-  // The collapsed "Off" swatch (also the first swatch when expanded).
-  const offSwatch = (active, onClick) => (
-    <button className={"swatch" + (active ? " on" : "")}
+  // Dedicated "Off" swatch (power icon) shown FIRST in the expanded palette.
+  // Active ring when the light is currently off.
+  const offSwatch = (
+    <button className={"swatch" + (!eff.on ? " on" : "")}
             style={{ background: SWATCH_BG.off, color: "var(--label2)" }}
             disabled={!control.online}
             aria-label="Off"
-            onClick={onClick}>
-      {LIGHTBULB_SVG}
+            onClick={pickOff}>
+      {POWER_SVG}
+    </button>
+  );
+
+  // Main circle: PURE expand/collapse toggle. Shows current state (current
+  // color when on, dim bulb when off) plus a chevron affordance. It NEVER
+  // sends a command — tapping only flips `open`.
+  const expander = (
+    <button className={"swatch expander" + (eff.on ? " on" : "") + (open ? " open" : "")}
+            style={eff.on
+              ? { background: tint, color: "#fff" }
+              : { background: SWATCH_BG.off, color: "var(--label2)" }}
+            disabled={!control.online}
+            aria-label={open ? "Collapse" : "Expand"}
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}>
+      {eff.on ? null : LIGHTBULB_SVG}
+      <span className="chev" aria-hidden="true">›</span>
     </button>
   );
 
@@ -782,21 +812,12 @@ function ModesRow({ control, command, iconNode, bare }) {
       </div>
       )}
       <div className="swatches" style={swatchesStyle}>
-        {!open ? (
-          eff.on ? (
-            // Collapsed + on: single swatch in the current color, lit ring.
-            <button className="swatch on"
-                    style={{ background: tint, color: "#fff" }}
-                    disabled={!control.online}
-                    aria-label={eff.mode || "Current color"}
-                    onClick={() => setOpen(true)} />
-          ) : (
-            // Collapsed + off: dim unlit bulb, no ring.
-            offSwatch(false, () => setOpen(true))
-          )
-        ) : (
+        {/* Main circle is ALWAYS present: pure expand/collapse, shows state. */}
+        {expander}
+        {open ? (
           <React.Fragment>
-            {offSwatch(!eff.on, pickOff)}
+            {/* Dedicated Off swatch FIRST, then the color swatches. */}
+            {offSwatch}
             {options.map((name) => {
               const key = name.toLowerCase();
               const bg = SWATCH_BG[key] || "var(--track)";
@@ -810,7 +831,7 @@ function ModesRow({ control, command, iconNode, bare }) {
               );
             })}
           </React.Fragment>
-        )}
+        ) : null}
       </div>
     </div>
   );
