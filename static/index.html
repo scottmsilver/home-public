@@ -691,28 +691,61 @@ function SpeedRow({ control, command, iconNode, bare }) {
 // header already conveys the control's name + current mode).
 function ModesRow({ control, command, iconNode, bare }) {
   const options = control.options || [];
-  const mode = (control.mode || "").toLowerCase();
-  const subStatus = control.on ? (control.mode || control.status || "On") : "Off";
+
+  // Optimistic override: reflect the user's tap INSTANTLY, then reconcile with
+  // the authoritative `control` state pushed over SSE. null = no override.
+  const [optimistic, setOptimistic] = React.useState(null);
+  // EFFECTIVE state drives ALL rendering (collapsed swatch color, active ring,
+  // on/off). When an override is set we render it; otherwise we defer to live.
+  const eff = optimistic || { on: !!control.on, mode: control.mode };
+  const mode = (eff.mode || "").toLowerCase();
+  const subStatus = eff.on ? (eff.mode || control.status || "On") : "Off";
 
   // The palette rests COLLAPSED, showing the light's current state as a single
   // circle. Tapping it reveals the choices (no command). Selecting a color
   // springs back to the collapsed state ~1.5s after the last tap.
   const [open, setOpen] = React.useState(false);
   const timer = React.useRef(null);
-  React.useEffect(() => () => clearTimeout(timer.current), []);
+  // Safety timer: drop a stale optimistic override after 6s so a dropped/failed
+  // command can't leave the UI permanently wrong (it falls back to live state).
+  const reconcileTimer = React.useRef(null);
+  React.useEffect(() => () => {
+    clearTimeout(timer.current);
+    clearTimeout(reconcileTimer.current);
+  }, []);
+
+  // Reconcile: once SSE reports a state matching our optimistic choice, drop the
+  // override and defer to live state.
+  React.useEffect(() => {
+    if (optimistic
+        && !!control.on === optimistic.on
+        && (control.mode || "").toLowerCase() === (optimistic.mode || "").toLowerCase()) {
+      setOptimistic(null);
+    }
+  }, [control.on, control.mode]);
+
+  // Set the optimistic override and (re)arm the 6s safety fallback.
+  const setOptimisticSafe = (next) => {
+    setOptimistic(next);
+    clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => setOptimistic(null), 6000);
+  };
 
   // Header icon toggles on/off (unchanged behavior for the non-bare layout).
   const tapIcon = () => command(control, { on: !control.on });
 
-  // Apply a color: keep open, restart the 1.5s spring-back timer.
+  // Apply a color: update optimistically FIRST so the ring/collapsed swatch move
+  // instantly, then send the command and restart the 1.5s spring-back timer.
   const pickColor = (name) => {
+    setOptimisticSafe({ on: true, mode: name });
     command(control, { mode: name });
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setOpen(false), 1500);
   };
 
-  // Tap Off: turn the light off and collapse immediately.
+  // Tap Off: optimistically off, send command, collapse immediately.
   const pickOff = () => {
+    setOptimisticSafe({ on: false, mode: eff.mode });
     command(control, { on: false });
     clearTimeout(timer.current);
     setOpen(false);
@@ -750,12 +783,12 @@ function ModesRow({ control, command, iconNode, bare }) {
       )}
       <div className="swatches" style={swatchesStyle}>
         {!open ? (
-          control.on ? (
+          eff.on ? (
             // Collapsed + on: single swatch in the current color, lit ring.
             <button className="swatch on"
                     style={{ background: tint, color: "#fff" }}
                     disabled={!control.online}
-                    aria-label={control.mode || "Current color"}
+                    aria-label={eff.mode || "Current color"}
                     onClick={() => setOpen(true)} />
           ) : (
             // Collapsed + off: dim unlit bulb, no ring.
@@ -763,11 +796,11 @@ function ModesRow({ control, command, iconNode, bare }) {
           )
         ) : (
           <React.Fragment>
-            {offSwatch(!control.on, pickOff)}
+            {offSwatch(!eff.on, pickOff)}
             {options.map((name) => {
               const key = name.toLowerCase();
               const bg = SWATCH_BG[key] || "var(--track)";
-              const active = control.on && key === mode;
+              const active = eff.on && key === mode;
               return (
                 <button key={name} className={"swatch" + (active ? " on" : "")}
                         style={{ background: bg }}
