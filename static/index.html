@@ -130,6 +130,11 @@ body {
 .ctl-sub.warn { color: var(--orange); }
 
 .ctl-right { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+
+/* label-less group status (Patio summary rows, fans-app style) */
+.ctl-stat { flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--label2); font-variant-numeric: tabular-nums; }
+.ctl-stat.warn { color: var(--orange); }
+.ctl-spacer { flex: 1; min-width: 0; }
 .off-badge {
   font-size: 11px; font-weight: 600; color: var(--orange);
   background: rgba(255,159,10,.16); padding: 3px 8px; border-radius: 8px;
@@ -496,8 +501,8 @@ function KindBody({ control, command, iconNode, onHome, bare }) {
   const k = control.kind;
   if (k === "toggle") return <ToggleRow control={control} command={command} iconNode={iconNode} />;
   if (k === "momentary") return <MomentaryRow control={control} command={command} iconNode={iconNode} />;
-  if (k === "slider") return <SliderRow control={control} command={command} iconNode={iconNode} />;
-  if (k === "speed") return <SpeedRow control={control} command={command} iconNode={iconNode} />;
+  if (k === "slider") return <SliderRow control={control} command={command} iconNode={iconNode} bare={bare} />;
+  if (k === "speed") return <SpeedRow control={control} command={command} iconNode={iconNode} bare={bare} />;
   if (k === "modes") return <ModesRow control={control} command={command} iconNode={iconNode} bare={bare} />;
   if (k === "segmented") return <SegmentedRow control={control} command={command} iconNode={iconNode} />;
   if (k === "setpoint") return <SetpointRow control={control} command={command} iconNode={iconNode} />;
@@ -526,6 +531,15 @@ function NameSub({ control }) {
 function OfflineBadge({ control }) {
   if (control.online) return null;
   return <span className="off-badge">offline</span>;
+}
+
+// Label-less group status indicator for the Patio summary rows (fans-app
+// `rowStat` style): shows the control's status ("2 of 4" / "Mixed" / "0 of 4")
+// small + right-aligned; warn/orange when the status mentions offline/off.
+function StatIndicator({ text }) {
+  if (!text) return null;
+  const warn = /offline|off\b/i.test(text);
+  return <span className={"ctl-stat" + (warn ? " warn" : "")}>{text}</span>;
 }
 
 function ToggleRow({ control, command, iconNode }) {
@@ -561,7 +575,7 @@ function MomentaryRow({ control, command, iconNode }) {
   );
 }
 
-function SliderRow({ control, command, iconNode }) {
+function SliderRow({ control, command, iconNode, bare }) {
   const [min, max] = control.range || [1, 100];
   const baseVal = control.on ? (control.value ?? min) : 0;
   const [drag, setDrag] = useState(null);          // local drag value while sliding
@@ -585,6 +599,30 @@ function SliderRow({ control, command, iconNode }) {
   };
   const tapIcon = () => command(control, control.on ? { on: false } : { value: control.value ?? max });
 
+  const sliderInput = (
+    <input type="range" min={min} max={max} step="1" value={val}
+           style={{ "--pct": shownPct + "%" }}
+           aria-label={control.name}
+           disabled={!control.online}
+           onInput={onInput}
+           onMouseUp={onCommit} onTouchEnd={onCommit} />
+  );
+
+  // Patio summary row (fans-app `comboDimmerRow` style): no name label. The icon
+  // toggles the lights group; OFF shows just icon + status, ON shows icon +
+  // brightness slider + status. The control's `status` ("2 of 4") is the indicator.
+  if (bare) {
+    return (
+      <React.Fragment>
+        <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
+        {control.on || drag != null
+          ? <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center" }}>{sliderInput}</div>
+          : <div className="ctl-spacer" />}
+        <StatIndicator text={control.status} />
+      </React.Fragment>
+    );
+  }
+
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -593,19 +631,14 @@ function SliderRow({ control, command, iconNode }) {
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
       <div className="slider-wrap">
-        <input type="range" min={min} max={max} step="1" value={val}
-               style={{ "--pct": shownPct + "%" }}
-               aria-label={control.name}
-               disabled={!control.online}
-               onInput={onInput}
-               onMouseUp={onCommit} onTouchEnd={onCommit} />
+        {sliderInput}
         <span className="slider-val">{control.on || drag != null ? val : ""}</span>
       </div>
     </div>
   );
 }
 
-function SpeedRow({ control, command, iconNode }) {
+function SpeedRow({ control, command, iconNode, bare }) {
   const [, max] = control.range || [1, 6];
   const tapIcon = () => command(control, { on: !control.on });
   const sub = control.on && control.value === null ? "Mixed" : control.status;
@@ -619,6 +652,23 @@ function SpeedRow({ control, command, iconNode }) {
               onClick={() => command(control, { value: n })}>{n}</button>
     );
   }
+
+  // Patio summary row (fans-app `comboFanRow` style): no name label. The icon
+  // toggles all fans; OFF shows just icon + status, ON shows icon + speed pills
+  // + status. The control's `status` ("2 of 4" / "Mixed") is the group indicator.
+  if (bare) {
+    const stat = control.on && control.value === null ? "Mixed" : control.status;
+    return (
+      <React.Fragment>
+        <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
+        {control.on
+          ? <div className="segc" style={{ flex: 1, marginTop: 0 }}>{pills}</div>
+          : <div className="ctl-spacer" />}
+        <StatIndicator text={stat} />
+      </React.Fragment>
+    );
+  }
+
   const affordance = control.on ? <div className="segc">{pills}</div> : null;
 
   return (
@@ -1026,10 +1076,16 @@ function SectionCard({ title, controls, command }) {
   const isGateCard = tl.indexOf("gate") !== -1;
   const singleTristate = controls.length === 1 && controls[0].kind === "tristate";
 
+  // Patio summary card → label-less fans-app home rows (icon + control + a small
+  // group-status indicator, no "Fans"/"Lights" name). Only the speed (fans) and
+  // slider (lights) controls take the bare path; the per-domain Fans tab keeps names.
+  const isPatioCard = tl.indexOf("patio") !== -1;
+
   const rows = controls.map((c) => {
-    const bare = isGateCard && singleTristate && c.kind === "tristate";
+    const bareGate = isGateCard && singleTristate && c.kind === "tristate";
+    const barePatio = isPatioCard && (c.kind === "speed" || c.kind === "slider");
     return (
-      <ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome bare={bare} />
+      <ControlRow key={c.domain + ":" + c.id} control={c} command={command} onHome bare={bareGate || barePatio} />
     );
   });
 
