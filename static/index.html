@@ -6,7 +6,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#0a1628">
 <link rel="icon" href="data:,">
 <title>Home</title>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -15,20 +15,34 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
 :root {
-  --bg: #000000;
-  --card: #1c1c1e;
-  --fill: #2c2c2e;
-  --track: #3a3a3c;
-  --label: #ffffff;
-  --label2: #aeaeb2;
-  --label3: rgba(235,235,245,0.28);
-  --cyan: #64d2ff;
-  --blue: #0a84ff;
-  --amber: #ffd60a;
-  --orange: #ff9f0a;
-  --green: #30d158;
-  --indigo: #7d7aff;
-  --red: #ff453a;
+  /* ── Pentair design tokens ─────────────────────────────────────
+     Canonical pentair palette (deep navy bg, translucent cards,
+     teal/warm accents, slate text). Home's existing token names are
+     remapped onto these values so every component picks up the new
+     look without markup changes. */
+  --bg: #0a1628;
+  --card: rgba(255,255,255,0.06);
+  --card-border: rgba(255,255,255,0.08);
+  --accent: #38bdf8;
+  --teal: #2dd4bf;
+  --warm: #f97316;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --text-faint: rgba(255,255,255,0.35);
+  --text-bright: #f8fafc;
+  /* Home token names mapped onto the pentair palette ───────────── */
+  --fill: rgba(255,255,255,0.06);
+  --track: rgba(255,255,255,0.12);
+  --label: var(--text-bright);
+  --label2: var(--text-dim);
+  --label3: var(--text-faint);
+  --cyan: #2dd4bf;   /* primary active/"on" accent → pentair teal */
+  --blue: #38bdf8;   /* secondary accent → pentair sky */
+  --amber: #38bdf8;  /* light accent → sky (cohesive with palette) */
+  --orange: #f97316; /* heating/warning → pentair warm */
+  --green: #2dd4bf;  /* ok/active states → teal */
+  --indigo: #38bdf8;
+  --red: #ef4444;
   /* unified circular-control diameter (icon buttons, expander, swatches) */
   --circle: 44px;
   /* type scale, applied by role */
@@ -40,8 +54,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { height: 100%; overflow-y: scroll; scrollbar-gutter: stable; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-  background: var(--bg); color: var(--label);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
   min-height: 100%;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
@@ -59,8 +73,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
 }
 .hdr-right { display: flex; align-items: center; gap: 12px; padding-bottom: 5px; }
-.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); transition: background .2s; }
-.conn-dot.off { background: var(--red); }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: background .2s; }
+.conn-dot.off { background: #ef4444; }
 
 /* iOS segmented control */
 .seg { display: inline-flex; background: var(--fill); border-radius: 11px; padding: 2px; }
@@ -70,13 +84,14 @@ body {
   border-radius: 9px; font-family: inherit; cursor: pointer;
   transition: background .18s ease-out, color .18s ease-out;
 }
-.seg button.active { background: #636366; color: #fff; }
+.seg button.active { background: rgba(45,212,191,.18); color: var(--teal); }
 
 /* ── Cards ──────────────────────────────── */
 .card {
   background: var(--card);
-  border-radius: 22px;
-  padding: 18px 18px 20px;
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 20px;
   margin-bottom: 12px;
 }
 .card-title-row {
@@ -90,13 +105,13 @@ body {
 .badge {
   font-size: var(--fs-sub); font-weight: 600; letter-spacing: .1px;
   padding: 4px 10px; border-radius: 9px;
-  background: rgba(235,235,245,.12); color: var(--label2);
+  background: rgba(255,255,255,.08); color: var(--text-dim);
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.badge.green  { background: rgba(48,209,88,.18);  color: var(--green); }
-.badge.teal   { background: rgba(100,210,255,.18); color: var(--cyan); }
-.badge.orange { background: rgba(255,159,10,.18);  color: var(--orange); }
-.badge.gray   { background: rgba(235,235,245,.12); color: var(--label2); }
+.badge.green  { background: rgba(45,212,191,.18); color: var(--teal); }
+.badge.teal   { background: rgba(56,189,248,.18); color: var(--accent); }
+.badge.orange { background: rgba(249,115,22,.18); color: var(--warm); }
+.badge.gray   { background: rgba(255,255,255,.08); color: var(--text-dim); }
 
 /* group divider label inside the unified Home card */
 .group-label {
@@ -145,8 +160,8 @@ body {
 .card-warn { margin-top: 8px; font-size: var(--fs-sub); font-weight: 500; color: var(--orange); opacity: 0.85; }
 .ctl-spacer { flex: 1; min-width: 0; }
 .off-badge {
-  font-size: 11px; font-weight: 600; color: var(--orange);
-  background: rgba(255,159,10,.16); padding: 3px 8px; border-radius: 8px;
+  font-size: 11px; font-weight: 600; color: var(--warm);
+  background: rgba(249,115,22,.16); padding: 3px 8px; border-radius: 8px;
 }
 
 /* slider */
@@ -188,7 +203,7 @@ input[type=range]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
   transition: background .15s ease-out, color .15s ease-out, transform .12s ease-out;
 }
-.spd.on { background: rgba(100,210,255,.22); color: var(--cyan); }
+.spd.on { background: rgba(45,212,191,.22); color: var(--teal); }
 .spd:active { transform: scale(.92); }
 
 /* momentary pill button */
@@ -201,7 +216,7 @@ input[type=range]::-moz-range-thumb {
   transition: background .16s ease-out, transform .15s ease-out;
 }
 .pill:active { transform: scale(.94); }
-.pill.accent { background: rgba(48,209,88,.2); color: var(--green); }
+.pill.accent { background: rgba(45,212,191,.2); color: var(--teal); }
 .pill[disabled] { opacity: .5; cursor: default; }
 .pill.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--track); color: var(--label2); padding: 7px 12px; font-size: 13px; }
 
@@ -222,7 +237,7 @@ input[type=range]::-moz-range-thumb {
 }
 .sheet {
   width: 100%; max-width: 404px;
-  background: #1c1c1e; border-radius: 18px;
+  background: #11203a; border: 1px solid var(--card-border); border-radius: 18px;
   padding: 18px 16px 18px;
 }
 .sheet-title { font-size: 15px; font-weight: 600; color: var(--label); margin-bottom: 4px; text-align: center; }
@@ -240,7 +255,7 @@ input[type=range]::-moz-range-thumb {
   padding: 11px 12px; color: var(--label); font-size: 16px; font-family: inherit;
   font-variant-numeric: tabular-nums;
 }
-.sheet-input:focus { outline: 2px solid var(--cyan); }
+.sheet-input:focus { outline: 2px solid var(--teal); }
 
 /* modes color picker */
 .modes-strip {
@@ -259,7 +274,7 @@ input[type=range]::-moz-range-thumb {
   transition: background .15s ease-out, box-shadow .15s ease-out, transform .12s ease-out;
 }
 .chip:active { transform: scale(.93); }
-.chip.on { box-shadow: inset 0 0 0 1.5px var(--cyan); background: rgba(100,210,255,.16); }
+.chip.on { box-shadow: inset 0 0 0 1.5px var(--teal); background: rgba(45,212,191,.16); }
 .chip-dot {
   width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.25);
@@ -277,8 +292,8 @@ input[type=range]::-moz-range-thumb {
   font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
   transition: background .15s ease-out, color .15s ease-out, transform .12s ease-out;
 }
-.tri button.on { background: #636366; color: #fff; }
-.tri button.busy { background: rgba(48,209,88,.25); color: var(--green); }
+.tri button.on { background: rgba(45,212,191,.18); color: var(--teal); }
+.tri button.busy { background: rgba(45,212,191,.25); color: var(--teal); }
 .tri button:active { transform: scale(.95); }
 .tri button[disabled] { opacity: .5; cursor: default; }
 
@@ -300,10 +315,10 @@ input[type=range]::-moz-range-thumb {
 .gate-btn:active { transform: scale(.95); }
 .gate-btn[disabled] { opacity: .5; cursor: default; }
 .gate-btn.held {
-  background: rgba(48,209,88,.18); color: var(--green);
-  box-shadow: inset 0 0 0 1px var(--green);
+  background: rgba(45,212,191,.18); color: var(--teal);
+  box-shadow: inset 0 0 0 1px var(--teal);
 }
-.gate-btn.busy { background: rgba(48,209,88,.25); color: var(--green); box-shadow: none; }
+.gate-btn.busy { background: rgba(45,212,191,.25); color: var(--teal); box-shadow: none; }
 
 /* setpoint stepper (inline +/- around a big value) */
 .stepper { display: flex; align-items: center; gap: 14px; }
@@ -347,9 +362,9 @@ input[type=range]::-moz-range-thumb {
 }
 .spa-seg-btn:active { transform: scale(.95); }
 .spa-seg-btn.active {
-  background: rgba(20,184,166,.18);
-  border-color: rgba(20,184,166,.35);
-  color: #14b8a6;
+  background: rgba(45,212,191,.18);
+  border-color: rgba(45,212,191,.35);
+  color: var(--teal);
 }
 .spa-seg-btn[disabled] { opacity: .5; cursor: default; }
 /* tappable setpoint bar */
@@ -405,7 +420,7 @@ input[type=range]::-moz-range-thumb {
 .swatch .chev {
   position: absolute; right: -2px; bottom: -2px;
   width: 18px; height: 18px; border-radius: 50%;
-  background: var(--card, #1c1c1e); color: var(--label2);
+  background: #11203a; color: var(--label2);
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; line-height: 1; font-weight: 700;
   border: 1px solid rgba(255,255,255,.2);
@@ -1014,7 +1029,7 @@ function SpaSetpointSheet({ control, command, onClose }) {
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="sheet-row" style={{ marginTop: 0 }} onClick={onClose}>Cancel</button>
-          <button className="sheet-row" style={{ marginTop: 0, background: "rgba(100,210,255,.22)", color: "var(--cyan)" }}
+          <button className="sheet-row" style={{ marginTop: 0, background: "rgba(45,212,191,.22)", color: "var(--teal)" }}
                   onClick={set}>Set</button>
         </div>
       </div>
