@@ -704,60 +704,33 @@ function SpeedRow({ control, command, iconNode, bare }) {
 function ModesRow({ control, command, iconNode, bare }) {
   const options = control.options || [];
 
-  // Optimistic override: reflect the user's tap INSTANTLY, then reconcile with
-  // the authoritative `control` state pushed over SSE. null = no override.
-  const [optimistic, setOptimistic] = React.useState(null);
-  // EFFECTIVE state drives ALL rendering (collapsed swatch color, active ring,
-  // on/off). When an override is set we render it; otherwise we defer to live.
-  const eff = optimistic || { on: !!control.on, mode: control.mode };
+  // State is now driven entirely by the already-merged `control` (App overlays
+  // the central optimistic fields before this component sees it), so taps still
+  // reflect instantly — just via the central layer, not a local override.
+  const eff = { on: !!control.on, mode: control.mode };
   const mode = (eff.mode || "").toLowerCase();
   const subStatus = eff.on ? (eff.mode || control.status || "On") : "Off";
 
   // The palette rests COLLAPSED, showing the light's current state as a single
   // circle. Tapping it reveals the choices (no command). Selecting a color
-  // springs back to the collapsed state ~1.5s after the last tap.
+  // springs back to the collapsed state ~1.5s after the last tap. (UI-only.)
   const [open, setOpen] = React.useState(false);
   const timer = React.useRef(null);
-  // Safety timer: drop a stale optimistic override after 6s so a dropped/failed
-  // command can't leave the UI permanently wrong (it falls back to live state).
-  const reconcileTimer = React.useRef(null);
-  React.useEffect(() => () => {
-    clearTimeout(timer.current);
-    clearTimeout(reconcileTimer.current);
-  }, []);
-
-  // Reconcile: once SSE reports a state matching our optimistic choice, drop the
-  // override and defer to live state.
-  React.useEffect(() => {
-    if (optimistic
-        && !!control.on === optimistic.on
-        && (control.mode || "").toLowerCase() === (optimistic.mode || "").toLowerCase()) {
-      setOptimistic(null);
-    }
-  }, [control.on, control.mode]);
-
-  // Set the optimistic override and (re)arm the 6s safety fallback.
-  const setOptimisticSafe = (next) => {
-    setOptimistic(next);
-    clearTimeout(reconcileTimer.current);
-    reconcileTimer.current = setTimeout(() => setOptimistic(null), 6000);
-  };
+  React.useEffect(() => () => clearTimeout(timer.current), []);
 
   // Header icon toggles on/off (unchanged behavior for the non-bare layout).
   const tapIcon = () => command(control, { on: !control.on });
 
-  // Apply a color: update optimistically FIRST so the ring/collapsed swatch move
-  // instantly, then send the command and restart the 1.5s spring-back timer.
+  // Apply a color: command is centrally optimistic, so the ring/collapsed swatch
+  // move instantly. Restart the 1.5s spring-back timer.
   const pickColor = (name) => {
-    setOptimisticSafe({ on: true, mode: name });
     command(control, { mode: name });
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setOpen(false), 1500);
   };
 
-  // Tap Off: optimistically off, send command, collapse immediately.
+  // Tap Off: command is centrally optimistic; collapse immediately.
   const pickOff = () => {
-    setOptimisticSafe({ on: false, mode: eff.mode });
     command(control, { on: false });
     clearTimeout(timer.current);
     setOpen(false);
@@ -1184,16 +1157,17 @@ function SectionCard({ title, controls, command }) {
   );
 }
 
-function HomeSections({ sections, byKey, command }) {
+function HomeSections({ sections, byKey, command, mergeFn }) {
   if (!sections.length) {
     return <div className="card"><div className="card-status">No home controls configured.</div></div>;
   }
   return (
     <React.Fragment>
       {sections.map((sec, si) => {
-        // Live controls (SSE) by domain+id; fall back to the /api/home snapshot.
+        // Live controls (SSE, already optimistic-merged via byKey) by domain+id;
+        // fall back to the /api/home snapshot (merged here for early taps).
         const controls = sec.ids
-          .map((k) => byKey[k.domain + ":" + k.id] || sec.snapshot[k.domain + ":" + k.id])
+          .map((k) => byKey[k.domain + ":" + k.id] || mergeFn(sec.snapshot[k.domain + ":" + k.id]))
           .filter(Boolean);
         return (
           <SectionCard key={"sec-" + si + ":" + sec.title}
@@ -1226,12 +1200,73 @@ const TABS = [
   { id: "fans", label: "Fans" },
 ];
 
+// Pure prediction of the partial control fields a payload SHOULD produce,
+// keyed by control.kind. Returns {} when there's nothing persistent to predict
+// (e.g. a momentary "unlock" pulse). Used by the central optimistic layer.
+function predict(control, payload) {
+  if (!control || !payload) return {};
+  switch (control.kind) {
+    case "toggle":
+      return { on: !!payload.on };
+    case "segmented":
+      return { mode: payload.state, on: payload.state !== "off" };
+    case "setpoint":
+      return { value: payload.setpoint };
+    case "speed":
+      return "value" in payload
+        ? { value: payload.value, on: true }
+        : { on: !!payload.on };
+    case "slider":
+      return "value" in payload
+        ? { value: payload.value, on: true }
+        : { on: !!payload.on };
+    case "modes":
+      if ("mode" in payload) return { mode: payload.mode, on: true };
+      if ("on" in payload) return { on: !!payload.on };
+      return {};
+    case "momentary":
+    case "tristate":
+      if (payload.action === "hold_forever") return { on: true, mode: "forever" };
+      if (payload.action === "hold_today") return { on: true, mode: "timed" };
+      if (payload.action === "stop") return { on: false, mode: null };
+      if (payload.action === "unlock") return {};   // momentary pulse, nothing to persist
+      return {};
+    default:
+      return {};
+  }
+}
+
+// True when the live control already reflects ALL predicted fields (mode
+// compared case-insensitively, null == null). Used to retire optimistic entries.
+function matchesPrediction(control, fields) {
+  if (!control) return false;
+  for (const k in fields) {
+    const want = fields[k];
+    const got = control[k];
+    if (k === "mode") {
+      const a = want == null ? null : String(want).toLowerCase();
+      const b = got == null ? null : String(got).toLowerCase();
+      if (a !== b) return false;
+    } else if (k === "on") {
+      if (!!want !== !!got) return false;
+    } else {
+      if (want !== got) return false;
+    }
+  }
+  return true;
+}
+
 function App() {
   const [state, setState] = useState({ controls: [] });
   const [sections, setSections] = useState([]);    // [{title, ids:[{domain,id}], snapshot:{key->control}}]
   const [tab, setTab] = useState("home");
   const [connected, setConnected] = useState(false);
   const draggingRef = useRef(false);
+  // Central optimistic overlay: key "domain:id" -> { fields:{...predicted...} }.
+  // A tap reflects instantly via these fields; SSE reconciliation (or a 6s
+  // safety timer) clears each entry.
+  const [optimistic, setOptimistic] = useState({});
+  const optimisticTimers = useRef({});             // key -> timeout id
 
   // Initial paint + learn the Home section structure (titles + control ids/order).
   useEffect(() => {
@@ -1274,20 +1309,74 @@ function App() {
     return () => es.close();
   }, []);
 
-  const command = useCallback((control, payload) => {
-    postCommand(control.domain, control.id, payload);
+  // Clear any pending optimistic safety timers on unmount.
+  useEffect(() => () => {
+    Object.values(optimisticTimers.current).forEach(clearTimeout);
   }, []);
 
+  const command = useCallback((control, payload) => {
+    if (control) {
+      const key = control.domain + ":" + control.id;
+      const fields = predict(control, payload);
+      if (fields && Object.keys(fields).length) {
+        setOptimistic((o) => ({ ...o, [key]: { fields } }));
+        clearTimeout(optimisticTimers.current[key]);
+        optimisticTimers.current[key] = setTimeout(() => {
+          setOptimistic((o) => {
+            if (!(key in o)) return o;
+            const next = { ...o };
+            delete next[key];
+            return next;
+          });
+          delete optimisticTimers.current[key];
+        }, 6000);
+      }
+      postCommand(control.domain, control.id, payload);
+    }
+  }, []);
+
+  // Reconcile on each SSE snapshot: drop optimistic entries the live state now
+  // satisfies (and cancel their safety timers).
+  useEffect(() => {
+    setOptimistic((o) => {
+      let changed = false;
+      const next = { ...o };
+      for (const key in o) {
+        const live = byKey[key];
+        if (live && matchesPrediction(live, o[key].fields)) {
+          clearTimeout(optimisticTimers.current[key]);
+          delete optimisticTimers.current[key];
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : o;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  // Merge optimistic overlay onto a live control.
+  const merge = (c) => {
+    if (!c) return c;
+    const ov = optimistic[c.domain + ":" + c.id];
+    return ov ? { ...c, ...ov.fields } : c;
+  };
+
+  // byKey holds the MERGED controls so both home sections and domain tabs see
+  // the optimistic overlay.
   const byKey = {};
-  (state.controls || []).forEach((c) => { byKey[c.domain + ":" + c.id] = c; });
+  (state.controls || []).forEach((c) => {
+    byKey[c.domain + ":" + c.id] = merge(c);
+  });
 
   let body;
   if (tab === "home") {
-    body = <HomeSections sections={sections} byKey={byKey} command={command} />;
+    body = <HomeSections sections={sections} byKey={byKey} command={command} mergeFn={merge} />;
   } else {
     const domainControls = (state.controls || [])
       .filter((c) => c.domain === tab)
-      .filter((c) => !(c.domain === "gate" && c.id === "gate"));
+      .filter((c) => !(c.domain === "gate" && c.id === "gate"))
+      .map(merge);
     body = <DomainCard tab={tab} controls={domainControls} command={command} />;
   }
 
