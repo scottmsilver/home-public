@@ -40,6 +40,35 @@ def test_snapshot_aggregates_fans_lights_heaters():
     assert heaters.name == "Heaters"
     assert heaters.kind == "slider" and heaters.on is True and heaters.value == 40
 
+    # all devices in SNAP are online → no offline count anywhere
+    assert fans.offline == 0
+    assert lights.offline == 0
+    assert heaters.offline == 0
+
+
+OFFLINE_SNAP = {
+    "fans": [
+        {"id": "a", "name": "A", "online": True, "state": {"fanOn": True, "fanSpeed": 2, "lightOn": True}},
+        {"id": "b", "name": "B", "online": False, "state": {"fanOn": False, "lightOn": False}},
+    ],
+    "heaters": [
+        {"id": "h1", "name": "Patio", "online": True, "state": {"on": True, "level": 40}},
+        {"id": "h2", "name": "Side", "online": False, "state": {"on": False}},
+    ],
+}
+
+
+@responses.activate
+def test_snapshot_counts_offline_devices():
+    responses.add(responses.GET, "http://f/api/fans", json=OFFLINE_SNAP, status=200)
+    controls = {c.id: c for c in FansAdapter("http://f").snapshot()}
+
+    # one fan (B) is offline → both fans and lights controls report 1 offline
+    assert controls["fans"].offline == 1
+    assert controls["lights"].offline == 1
+    # one heater (h2) is offline
+    assert controls["heaters"].offline == 1
+
 
 @responses.activate
 def test_command_fans_toggle_posts_all():
