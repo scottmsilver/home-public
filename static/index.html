@@ -929,8 +929,10 @@ function TristateRow({ control, command, iconNode, bare }) {
   const forever = () =>
     command(control, { action: mode === "forever" ? "stop" : "hold_forever" });
   const timed = () => {
-    if (mode === "timed") command(control, { action: "stop" });
-    else setSheet(true);
+    // Always open the time picker — even when a hold is already active — so the
+    // user can re-pick (re-set) the end time after the fact. Clearing a hold is
+    // handled by the "Turn off hold" button inside the sheet.
+    setSheet(true);
   };
 
   // "Until" label: when held-today, show the end time from status
@@ -960,7 +962,7 @@ function TristateRow({ control, command, iconNode, bare }) {
                 onClick={forever}>Forever</button>
       </div>
       {sheet ? (
-        <GateHoldSheet control={control} command={command} onClose={() => setSheet(false)} />
+        <GateHoldSheet control={control} command={command} mode={mode} onClose={() => setSheet(false)} />
       ) : null}
     </div>
   );
@@ -979,8 +981,22 @@ function ReadoutRow({ control, iconNode }) {
 }
 
 // ── Gate hold-action sheet ─────────────────────────────────────
-function GateHoldSheet({ control, command, onClose }) {
-  const [time, setTime] = useState("18:00");
+function GateHoldSheet({ control, command, mode, onClose }) {
+  // Seed the picker from the current "Held until 6:00 PM" status when a timed
+  // hold is active; otherwise default to 6:00 PM (18:00).
+  const seed = () => {
+    if (mode === "timed" && control.status) {
+      const m = control.status.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (m) {
+        let h = parseInt(m[1], 10) % 12;
+        if (m[3].toUpperCase() === "PM") h += 12;
+        return String(h).padStart(2, "0") + ":" + m[2];
+      }
+    }
+    return "18:00";
+  };
+  const [time, setTime] = useState(seed);
+  const held = mode === "timed" || mode === "forever";
   const run = (payload) => { command(control, payload); onClose(); };
   return (
     <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) onClose(); }}>
@@ -997,7 +1013,9 @@ function GateHoldSheet({ control, command, onClose }) {
           </span>
         </div>
         <button className="sheet-row" onClick={() => run({ action: "hold_forever" })}>Forever</button>
-        <button className="sheet-row danger" onClick={() => run({ action: "stop" })}>Stop hold</button>
+        {held ? (
+          <button className="sheet-row danger" onClick={() => run({ action: "stop" })}>Turn off hold</button>
+        ) : null}
         <button className="sheet-row" onClick={onClose}>Cancel</button>
       </div>
     </div>
