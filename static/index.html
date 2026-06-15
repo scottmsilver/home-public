@@ -197,9 +197,10 @@ input[type=range]::-moz-range-thumb {
 /* speed pills */
 .segc { display: flex; gap: 5px; margin-top: 8px; }
 .spd {
-  flex: 1; padding: 9px 16px; border-radius: 12px;
+  flex: 1; min-width: 0; padding: 9px 16px; border-radius: 12px;
   background: var(--fill); border: none; color: var(--label2);
   font-size: var(--fs-btn); font-weight: 600; font-family: inherit; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
   transition: background .15s ease-out, color .15s ease-out, transform .12s ease-out;
 }
@@ -304,9 +305,9 @@ input[type=range]::-moz-range-thumb {
 }
 .gate-actions { display: flex; gap: 8px; }
 .gate-btn {
-  flex: 1; min-width: 0; padding: 9px 16px; border-radius: 12px;
+  flex: 1; min-width: 0; padding: 9px 10px; border-radius: 12px;
   background: var(--fill); border: none; color: var(--label);
-  font-size: var(--fs-btn); font-weight: 600; font-family: inherit; cursor: pointer;
+  font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
   display: flex; align-items: center; justify-content: center;
@@ -353,10 +354,11 @@ input[type=range]::-moz-range-thumb {
 /* segmented Off / Spa / Jets pills */
 .spa-seg { display: flex; gap: 8px; margin-top: 12px; margin-bottom: 4px; }
 .spa-seg-btn {
-  padding: 9px 16px; border-radius: 12px;
+  min-width: 0; padding: 9px 16px; border-radius: 12px;
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.10);
   color: var(--label2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: var(--fs-btn); font-weight: 600; font-family: inherit;
   cursor: pointer; transition: background .2s, color .2s, border-color .2s, transform .12s ease-out;
 }
@@ -416,18 +418,7 @@ input[type=range]::-moz-range-thumb {
 }
 .swatch svg { width: 22px; height: 22px; display: block; }
 .swatch[disabled] { opacity: .5; cursor: default; }
-/* Chevron affordance on the main expand/collapse circle. */
-.swatch .chev {
-  position: absolute; right: -2px; bottom: -2px;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #11203a; color: var(--label2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; line-height: 1; font-weight: 700;
-  border: 1px solid rgba(255,255,255,.2);
-  transition: transform .18s ease-out;
-}
 .swatch.expander { position: relative; }
-.swatch.expander.open .chev { transform: rotate(90deg); }
 </style>
 </head>
 <body>
@@ -790,7 +781,7 @@ function ModesRow({ control, command, iconNode, bare }) {
   );
 
   // Main circle: PURE expand/collapse toggle. Shows current state (current
-  // color when on, dim bulb when off) plus a chevron affordance. It NEVER
+  // color when on, dim bulb when off). It NEVER
   // sends a command — tapping only flips `open`.
   const expander = (
     <button className={"swatch expander" + (eff.on ? " on" : "") + (open ? " open" : "")}
@@ -802,7 +793,6 @@ function ModesRow({ control, command, iconNode, bare }) {
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}>
       {eff.on ? null : LIGHTBULB_SVG}
-      <span className="chev" aria-hidden="true">›</span>
     </button>
   );
 
@@ -915,6 +905,16 @@ function SetpointRow({ control, command, iconNode }) {
 // Gate: unifi-style Once / Until / Forever door control.
 // `bare` omits the icon + name + status line (used inside the Gate summary
 // card whose header + badge already convey the door's name + lock state).
+function compactTime(s) {
+  // "6:00 PM" -> "6p", "8:30 PM" -> "8:30p", "9:00 AM" -> "9a"
+  if (!s) return s;
+  const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return s;
+  const [, h, mm, ap] = m;
+  const suf = ap.toUpperCase() === "PM" ? "p" : "a";
+  return mm === "00" ? `${h}${suf}` : `${h}:${mm}${suf}`;
+}
+
 function TristateRow({ control, command, iconNode, bare }) {
   const [busy, setBusy] = useState(false);        // brief tap feedback for the Once pulse
   const [sheet, setSheet] = useState(false);
@@ -936,8 +936,8 @@ function TristateRow({ control, command, iconNode, bare }) {
   // "Until" label: when held-today, show the end time from status
   // ("Held until 8:00 PM" → "Until 8:00 PM"); otherwise a sensible default.
   const untilLabel = mode === "timed" && control.status
-    ? control.status.replace(/^Held until /i, "Until ")
-    : "Until 6:00 PM";
+    ? "Until " + compactTime(control.status.replace(/^Held until /i, ""))
+    : "Until " + compactTime("6:00 PM");
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
