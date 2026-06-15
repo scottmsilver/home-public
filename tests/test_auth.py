@@ -1,4 +1,6 @@
 # tests/test_auth.py
+import time
+
 import jwt
 from flask import Flask
 
@@ -36,8 +38,16 @@ def test_disallowed_email_rejected(tmp_path):
 
 def test_verify_handoff_uses_handoff_secret(tmp_path):
     g = make_gate(tmp_path)
-    token = jwt.encode({"email": "you@gmail.com"}, "hs", algorithm="HS256")
+    token = jwt.encode({"email": "you@gmail.com", "exp": int(time.time()) + 60}, "hs", algorithm="HS256")
     assert g.verify_handoff(token) == "you@gmail.com"
+
+
+def test_handoff_without_exp_rejected(tmp_path):
+    # The broker mints short-lived handoff JWTs WITH exp; a token lacking exp
+    # must be rejected so a stripped/forged token can't be replayed indefinitely.
+    g = make_gate(tmp_path)
+    token = jwt.encode({"email": "you@gmail.com"}, "hs", algorithm="HS256")
+    assert g.verify_handoff(token) is None
 
 
 def test_fully_configured(tmp_path):

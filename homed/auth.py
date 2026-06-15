@@ -91,7 +91,9 @@ class AuthGate:
 
     def verify_handoff(self, token):
         try:
-            return jwt.decode(token, self.handoff_secret, algorithms=["HS256"]).get("email")
+            return jwt.decode(token, self.handoff_secret, algorithms=["HS256"], options={"require": ["exp"]}).get(
+                "email"
+            )
         except jwt.PyJWTError:
             return None
 
