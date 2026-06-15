@@ -141,6 +141,8 @@ body {
 /* label-less group status (Patio summary rows, fans-app style) */
 .ctl-stat { flex-shrink: 0; font-size: var(--fs-sub); font-weight: 600; color: var(--label2); font-variant-numeric: tabular-nums; }
 .ctl-stat.warn { color: var(--orange); }
+/* subtle card-level offline warning (Patio summary card) */
+.card-warn { margin-top: 8px; font-size: var(--fs-sub); font-weight: 500; color: var(--orange); opacity: 0.85; }
 .ctl-spacer { flex: 1; min-width: 0; }
 .off-badge {
   font-size: 11px; font-weight: 600; color: var(--orange);
@@ -552,13 +554,26 @@ function OfflineBadge({ control }) {
   return <span className="off-badge">offline</span>;
 }
 
-// Label-less group status indicator for the Patio summary rows (fans-app
-// `rowStat` style): shows the control's status ("2 of 4" / "Mixed" / "0 of 4")
-// small + right-aligned; warn/orange when the status mentions offline/off.
-function StatIndicator({ text }) {
-  if (!text) return null;
-  const warn = /offline|off\b/i.test(text);
-  return <span className={"ctl-stat" + (warn ? " warn" : "")}>{text}</span>;
+// Small, subtle card-level offline warning (Patio summary card): ⚠ + a short
+// count like "1 fan offline" / "2 offline". Renders nothing when all online.
+function OfflineWarning({ controls }) {
+  const fansOffline = controls
+    .filter((c) => c.id === "fans" || c.id === "lights")
+    .reduce((m, c) => Math.max(m, c.offline || 0), 0);
+  const heatersOffline = controls
+    .filter((c) => c.id === "heaters")
+    .reduce((m, c) => Math.max(m, c.offline || 0), 0);
+  const total = fansOffline + heatersOffline;
+  if (total <= 0) return null;
+  let text;
+  if (fansOffline > 0 && heatersOffline === 0) {
+    text = fansOffline === 1 ? "1 fan offline" : fansOffline + " fans offline";
+  } else if (heatersOffline > 0 && fansOffline === 0) {
+    text = heatersOffline === 1 ? "1 heater offline" : heatersOffline + " heaters offline";
+  } else {
+    text = total + " offline";
+  }
+  return <div className="card-warn">⚠ {text}</div>;
 }
 
 function ToggleRow({ control, command, iconNode }) {
@@ -627,9 +642,9 @@ function SliderRow({ control, command, iconNode, bare }) {
            onMouseUp={onCommit} onTouchEnd={onCommit} />
   );
 
-  // Patio summary row (fans-app `comboDimmerRow` style): no name label. The icon
-  // toggles the lights group; OFF shows just icon + status, ON shows icon +
-  // brightness slider + status. The control's `status` ("2 of 4") is the indicator.
+  // Patio summary row (fans-app `comboDimmerRow` style): no name label, no count.
+  // The icon toggles the lights group; OFF shows just the icon, ON shows icon +
+  // brightness slider. Offline state is surfaced as a card-level warning instead.
   if (bare) {
     return (
       <React.Fragment>
@@ -637,7 +652,6 @@ function SliderRow({ control, command, iconNode, bare }) {
         {control.on || drag != null
           ? <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center" }}>{sliderInput}</div>
           : <div className="ctl-spacer" />}
-        <StatIndicator text={control.status} />
       </React.Fragment>
     );
   }
@@ -672,18 +686,16 @@ function SpeedRow({ control, command, iconNode, bare }) {
     );
   }
 
-  // Patio summary row (fans-app `comboFanRow` style): no name label. The icon
-  // toggles all fans; OFF shows just icon + status, ON shows icon + speed pills
-  // + status. The control's `status` ("2 of 4" / "Mixed") is the group indicator.
+  // Patio summary row (fans-app `comboFanRow` style): no name label, no count.
+  // The icon toggles all fans; OFF shows just the icon, ON shows icon + speed
+  // pills. Offline state is surfaced as a card-level warning, not per row.
   if (bare) {
-    const stat = control.on && control.value === null ? "Mixed" : control.status;
     return (
       <React.Fragment>
         <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
         {control.on
           ? <div className="segc" style={{ flex: 1, marginTop: 0 }}>{pills}</div>
           : <div className="ctl-spacer" />}
-        <StatIndicator text={stat} />
       </React.Fragment>
     );
   }
@@ -1160,6 +1172,7 @@ function SectionCard({ title, controls, command }) {
         {badge ? <span className={"badge " + badge.tone}>{badge.text}</span> : null}
       </div>
       {rows.length ? rows : <div className="card-status">No controls.</div>}
+      {isPatioCard ? <OfflineWarning controls={controls} /> : null}
     </div>
   );
 }
