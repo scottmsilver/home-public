@@ -694,27 +694,47 @@ function ModesRow({ control, command, iconNode, bare }) {
   const mode = (control.mode || "").toLowerCase();
   const subStatus = control.on ? (control.mode || control.status || "On") : "Off";
 
-  // The first circle is a real Light on/off toggle (bulb icon). When the light
-  // is ON the palette is expanded; when OFF only the bulb toggle shows. There is
-  // no separate "expand without commanding" state anymore — expansion simply
-  // follows control.on.
-  const isExpanded = control.on;
+  // The palette rests COLLAPSED, showing the light's current state as a single
+  // circle. Tapping it reveals the choices (no command). Selecting a color
+  // springs back to the collapsed state ~1.5s after the last tap.
+  const [open, setOpen] = React.useState(false);
+  const timer = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(timer.current), []);
 
-  // Lit-bulb tint: the swatch color for the current mode (fallback to warm
-  // amber when the mode is unknown). Tinting the bulb circle shows that the
-  // light is on AND its current color.
-  const tint = SWATCH_BG[mode] || "var(--amber)";
-  const bulbBg = control.on ? tint : SWATCH_BG.off;
-
-  // Tap the bulb: OFF -> turn on (pentair restores last color); ON -> turn off.
-  const toggleBulb = () => command(control, { on: !control.on });
-
-  // Header icon also toggles on/off.
+  // Header icon toggles on/off (unchanged behavior for the non-bare layout).
   const tapIcon = () => command(control, { on: !control.on });
+
+  // Apply a color: keep open, restart the 1.5s spring-back timer.
+  const pickColor = (name) => {
+    command(control, { mode: name });
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 1500);
+  };
+
+  // Tap Off: turn the light off and collapse immediately.
+  const pickOff = () => {
+    command(control, { on: false });
+    clearTimeout(timer.current);
+    setOpen(false);
+  };
+
+  // Current-color tint for the collapsed swatch when the light is on.
+  const tint = SWATCH_BG[mode] || "var(--amber)";
 
   // Extra breathing room above the palette (esp. below the Setpoint row in the
   // Spa card). The .swatches CSS default is 12px; bump it to ~19px.
   const swatchesStyle = { marginTop: 19 };
+
+  // The collapsed "Off" swatch (also the first swatch when expanded).
+  const offSwatch = (active, onClick) => (
+    <button className={"swatch" + (active ? " on" : "")}
+            style={{ background: SWATCH_BG.off, color: "var(--label2)" }}
+            disabled={!control.online}
+            aria-label="Off"
+            onClick={onClick}>
+      {LIGHTBULB_SVG}
+    </button>
+  );
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -729,25 +749,35 @@ function ModesRow({ control, command, iconNode, bare }) {
       </div>
       )}
       <div className="swatches" style={swatchesStyle}>
-        <button className={"swatch" + (control.on ? " on" : "")}
-                style={{ background: bulbBg, color: control.on ? "#fff" : "var(--label2)" }}
-                disabled={!control.online}
-                aria-label={control.on ? "Light on" : "Light off"}
-                onClick={toggleBulb}>
-          {LIGHTBULB_SVG}
-        </button>
-        {isExpanded ? options.map((name) => {
-          const key = name.toLowerCase();
-          const bg = SWATCH_BG[key] || "var(--track)";
-          const active = control.on && key === mode;
-          return (
-            <button key={name} className={"swatch" + (active ? " on" : "")}
-                    style={{ background: bg }}
+        {!open ? (
+          control.on ? (
+            // Collapsed + on: single swatch in the current color, lit ring.
+            <button className="swatch on"
+                    style={{ background: tint, color: "#fff" }}
                     disabled={!control.online}
-                    aria-label={name}
-                    onClick={() => command(control, { mode: name })} />
-          );
-        }) : null}
+                    aria-label={control.mode || "Current color"}
+                    onClick={() => setOpen(true)} />
+          ) : (
+            // Collapsed + off: dim unlit bulb, no ring.
+            offSwatch(false, () => setOpen(true))
+          )
+        ) : (
+          <React.Fragment>
+            {offSwatch(!control.on, pickOff)}
+            {options.map((name) => {
+              const key = name.toLowerCase();
+              const bg = SWATCH_BG[key] || "var(--track)";
+              const active = control.on && key === mode;
+              return (
+                <button key={name} className={"swatch" + (active ? " on" : "")}
+                        style={{ background: bg }}
+                        disabled={!control.online}
+                        aria-label={name}
+                        onClick={() => pickColor(name)} />
+              );
+            })}
+          </React.Fragment>
+        )}
       </div>
     </div>
   );
