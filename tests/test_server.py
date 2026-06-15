@@ -174,6 +174,37 @@ def test_static_path_traversal_blocked():
         assert r.status_code in (200, 404)
 
 
+def test_auth_login_on_remote_domain_redirects_to_broker():
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    r = client.get("/api/auth/login", headers={"Host": "home.example.com"})
+    assert r.status_code == 302
+    # The callback return_url must be built from the CONFIGURED remote domain.
+    assert "home.example.com%2Fapi%2Fauth%2Fcallback" in r.headers["Location"]
+
+
+def test_auth_login_callback_host_ignores_request_host():
+    # Even if the Host is a subdomain of the remote domain (still "remote"),
+    # the callback must point at the configured apex remote domain, not the
+    # attacker-influenced Host header.
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    r = client.get("/api/auth/login", headers={"Host": "evil.home.example.com"})
+    assert r.status_code == 302
+    assert "https%3A%2F%2Fhome.example.com%2Fapi%2Fauth%2Fcallback" in r.headers["Location"]
+    assert "evil" not in r.headers["Location"]
+
+
+def test_auth_login_on_foreign_host_forbidden():
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    r = client.get("/api/auth/login", headers={"Host": "attacker.com"})
+    assert r.status_code == 403
+
+
 def test_auth_callback_rejects_bad_state():
     client, _ = make_client(
         web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}

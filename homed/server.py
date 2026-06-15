@@ -95,14 +95,17 @@ def create_app(aggregator, home_rows, web):
     # ── auth dance ───────────────────────────────────────────────
     @app.get("/api/auth/login")
     def auth_login():
+        if not gate.is_remote(request.headers.get("Host", "")):
+            return "login only via remote domain", 403
         if not gate.fully_configured:
             return "auth not configured", 503
         import secrets as _s
 
         st = _s.token_urlsafe(24)
-        host = request.headers.get("Host", "")
-        scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else request.scheme
-        cb = f"{scheme}://{host}/api/auth/callback?{urlencode({'state': st})}"
+        # Build the callback host from the CONFIGURED remote domain, never the
+        # request Host header (which an attacker could spoof to redirect the
+        # broker to a hostile domain). The remote domain is tunneled TLS → https.
+        cb = f"https://{gate.remote_domain}/api/auth/callback?{urlencode({'state': st})}"
         resp = make_response(redirect(f"{gate.broker_url}/start?{urlencode({'return_url': cb, 'scope': 'openid'})}"))
         resp.set_cookie(STATE_COOKIE, st, max_age=600, httponly=True, secure=_https(), samesite="Lax", path="/")
         return resp
@@ -117,9 +120,13 @@ def create_app(aggregator, home_rows, web):
             return "invalid state", 400
         email = gate.verify_handoff(request.args.get(HANDOFF_PARAM, ""))
         if not email:
-            return "invalid handoff", 401
+            resp = make_response("invalid handoff", 401)
+            resp.delete_cookie(STATE_COOKIE, path="/")
+            return resp
         if not gate.email_allowed(email):
-            return f"{email} not allowed", 403
+            resp = make_response(f"{email} not allowed", 403)
+            resp.delete_cookie(STATE_COOKIE, path="/")
+            return resp
         resp = make_response(redirect("/"))
         resp.delete_cookie(STATE_COOKIE, path="/")
         resp.set_cookie(
