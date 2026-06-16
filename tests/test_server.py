@@ -51,6 +51,75 @@ def make_client(home_rows=None, web=None):
     return app.test_client(), adapter
 
 
+class FakePoolAdapter:
+    domain = "pool"
+
+    def __init__(self, raw=None):
+        self._raw = raw if raw is not None else {"pool": {"on": True, "temperature": 82, "setpoint": 85}}
+        self.raw_commands = []
+
+    def snapshot(self):
+        return [Control("pool", "pool", "Pool", "toggle", on=True)]
+
+    def command(self, cid, payload):
+        pass
+
+    def raw(self):
+        return self._raw
+
+    def raw_command(self, path, body=None):
+        # Delegate to the real adapter validation so the endpoint test exercises
+        # the actual path-boundary checks rather than a duplicate.
+        from homed.adapters.pool import PoolAdapter
+
+        PoolAdapter.raw_command.__wrapped__ if False else None  # noqa
+        PoolAdapter._validate_raw_path(path)
+        self.raw_commands.append((path, body or {}))
+        return {"ok": True}
+
+    def start(self, on_change):
+        pass
+
+
+def make_pool_client(raw=None):
+    adapter = FakePoolAdapter(raw=raw)
+    agg = Aggregator({"pool": adapter})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    return app.test_client(), adapter
+
+
+def test_raw_pool_returns_backend_state():
+    sample = {
+        "pool": {"on": True, "temperature": 82, "setpoint": 85},
+        "spa": {"on": False, "setpoint": 102, "accessories": {"jets": False}},
+        "lights": {"on": True, "mode": "blue", "available_modes": ["blue", "green"]},
+        "auxiliaries": [{"id": "aux1", "name": "Waterfall", "on": False}],
+        "pump": {"pump_type": "VSF", "running": True, "rpm": 2400, "watts": 900, "gpm": 60},
+        "system": {"air_temperature": 70},
+    }
+    client, _ = make_pool_client(raw=sample)
+    r = client.get("/api/raw/pool")
+    assert r.status_code == 200
+    assert r.get_json() == sample
+
+
+def test_raw_pool_cmd_passes_through():
+    client, adapter = make_pool_client()
+    r = client.post("/api/raw/pool/cmd", json={"path": "/api/pool/heat", "body": {"setpoint": 88}})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True}
+    assert adapter.raw_commands == [("/api/pool/heat", {"setpoint": 88})]
+
+
+def test_raw_pool_cmd_rejects_bad_path():
+    client, adapter = make_pool_client()
+    for bad in ("/evil", "http://evil/api/x", "/api/x?u=http://evil"):
+        r = client.post("/api/raw/pool/cmd", json={"path": bad, "body": {}})
+        assert r.status_code == 400, bad
+    assert adapter.raw_commands == []
+
+
 def make_client_with_failing_adapter():
     agg = Aggregator({"gate": FailingAdapter()})
     agg.refresh_all()
