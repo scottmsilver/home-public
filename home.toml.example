@@ -28,5 +28,5 @@ title    = "Spa"
 
 [[home.rows]]
 domain = "fans"
-groups = ["fans", "lights"]
+groups = ["fans", "lights", "heaters"]
 title  = "Patio"
