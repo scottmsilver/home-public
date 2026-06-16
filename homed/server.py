@@ -77,6 +77,35 @@ def create_app(aggregator, home_rows, web):
             return jsonify({"error": "backend command failed"}), 502
         return jsonify({"ok": True})
 
+    @app.get("/api/raw/pool")
+    def raw_pool():
+        try:
+            adapter = aggregator.adapters["pool"]
+        except KeyError:
+            return jsonify({"error": "no pool backend"}), 404
+        try:
+            return jsonify(adapter.raw())
+        except Exception as e:
+            app.logger.warning("raw pool fetch failed: %s", e)
+            return jsonify({"error": "backend fetch failed"}), 502
+
+    @app.post("/api/raw/pool/cmd")
+    def raw_pool_cmd():
+        body = request.get_json(silent=True) or {}
+        path = body.get("path", "")
+        try:
+            adapter = aggregator.adapters["pool"]
+        except KeyError:
+            return jsonify({"error": "no pool backend"}), 404
+        try:
+            result = adapter.raw_command(path, body.get("body") or {})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            app.logger.warning("raw pool command failed: %s", e)
+            return jsonify({"error": "backend command failed"}), 502
+        return jsonify(result if isinstance(result, dict) else {"ok": True})
+
     @app.get("/api/stream")
     def stream():
         q = aggregator.subscribe()

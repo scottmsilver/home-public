@@ -419,6 +419,41 @@ input[type=range]::-moz-range-thumb {
 .swatch svg { width: 22px; height: 22px; display: block; }
 .swatch[disabled] { opacity: .5; cursor: default; }
 .swatch.expander { position: relative; }
+
+/* ── pentair-faithful Pool tab extras ───── */
+/* heat-estimate progress bar (under the big temp) */
+.heat-progress {
+  height: 3px; border-radius: 2px;
+  background: rgba(255,255,255,.06);
+  margin-top: 6px; overflow: hidden;
+}
+.heat-progress-bar { height: 100%; border-radius: 2px; background: var(--warm); transition: width 1s ease; }
+/* lights status (pentair lights card header) */
+.lights-status-on { color: var(--teal); }
+/* full-width swatch grid used in the standalone Lights card (5 cols like pentair) */
+.swatches.grid5 { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); }
+/* auxiliaries: a wrapping row of toggle buttons (pentair aux look) */
+.auxs { display: flex; gap: 8px; flex-wrap: wrap; }
+.aux-btn {
+  flex: 1 1 80px; min-width: 80px;
+  padding: 14px 8px; border-radius: 16px;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
+  color: var(--label2); font-size: 13px; font-weight: 500; font-family: inherit;
+  cursor: pointer; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background .3s, border-color .3s, color .3s, transform .12s ease-out;
+}
+.aux-btn:active { transform: scale(.96); }
+.aux-btn.on { background: rgba(56,189,248,.12); border-color: rgba(56,189,248,.3); color: var(--accent); }
+/* read-only pump/system detail rows (pentair tech drawer) */
+.tech-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: var(--fs-sub); color: var(--label2);
+  padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.tech-row:last-child { border-bottom: none; }
+.tech-label { color: var(--label3); }
+.tech-val { font-weight: 600; color: var(--label); font-variant-numeric: tabular-nums; text-align: right; min-width: 0; }
 </style>
 </head>
 <body>
@@ -1265,6 +1300,303 @@ function DomainCard({ tab, controls, command }) {
   );
 }
 
+// ── Faithful pentair Pool tab ──────────────────────────────────
+// Renders the real pentair app's cards (Pool, Spa, Lights, Auxiliaries,
+// Pump/system) directly from the raw pentair pool state at GET /api/raw/pool.
+// Commands go through /api/command for the controls home already models
+// (spa, spa_setpoint, pool on/off, lights, jets, auxiliaries) and through the
+// raw passthrough (/api/raw/pool/cmd) for pool heat/setpoint, which home does
+// not model as a Control.
+
+// Human "x min/h ago" from a unix-ms timestamp (mirrors pentair timeAgo).
+function timeAgo(unixMs) {
+  if (!unixMs) return "";
+  const sec = Math.floor((Date.now() - unixMs) / 1000);
+  if (sec < 60) return "just now";
+  if (sec < 3600) return Math.floor(sec / 60) + "m ago";
+  if (sec < 86400) return Math.floor(sec / 3600) + "h ago";
+  if (sec < 172800) return "yesterday";
+  return Math.floor(sec / 86400) + "d ago";
+}
+
+// Heat-estimate text + progress, from a body's display contract (pentair logic).
+function heatEstimate(body) {
+  if (!body) return { text: "", pct: 0 };
+  const hed = body.heat_estimate_display;
+  const hp = body.spa_heat_progress;
+  let text = "";
+  if (hed && hed.state !== "unavailable" && body.on) {
+    if (hed.state === "ready" && hed.minutes_remaining != null) {
+      text = "Ready in about " + hed.minutes_remaining + " min";
+    } else if (hed.state === "pending" && hed.reason === "sensor-warmup") {
+      text = hed.available_in_seconds != null
+        ? "Warming sensor… " + Math.ceil(hed.available_in_seconds / 60) + "m"
+        : "Warming sensor…";
+    } else if (hed.state === "pending") {
+      text = "Estimating…";
+    }
+  }
+  const pct = hp && hp.active && hp.progress_pct > 0 ? hp.progress_pct : 0;
+  return { text, pct };
+}
+
+// Status badge ({text, tone}) for a body (pool/spa), mirroring pentair wording.
+function bodyBadge(body) {
+  if (!body) return { text: "Off", tone: "gray" };
+  if (body.on && body.heating && body.heating !== "off") return { text: "Heating", tone: "orange" };
+  if (body.on) return { text: "On", tone: "teal" };
+  return { text: "Off", tone: "gray" };
+}
+
+// Generic setpoint bottom sheet (±1, clamped 40–104) used by both bodies.
+function PoolSetpointSheet({ title, value, onSet, onClose }) {
+  const [val, setVal] = useState(Math.max(40, Math.min(104, value ?? 80)));
+  const adj = (d) => setVal((v) => Math.max(40, Math.min(104, v + d)));
+  return (
+    <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) onClose(); }}>
+      <div className="sheet">
+        <div className="sheet-title">{title}</div>
+        <div style={{ textAlign: "center", margin: "8px 0 4px" }}>
+          <span className="spa-sheet-val">{val}</span>
+          <span className="spa-sheet-deg">°</span>
+        </div>
+        <div className="spa-sheet-steps">
+          <button className="spa-sheet-step" disabled={val <= 40}
+                  aria-label="Decrease" onClick={() => adj(-1)}>−</button>
+          <button className="spa-sheet-step" disabled={val >= 104}
+                  aria-label="Increase" onClick={() => adj(1)}>+</button>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="sheet-row" style={{ marginTop: 0 }} onClick={onClose}>Cancel</button>
+          <button className="sheet-row" style={{ marginTop: 0, background: "rgba(45,212,191,.22)", color: "var(--teal)" }}
+                  onClick={() => { onSet(val); onClose(); }}>Set</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A pentair body card: status badge, big temperature + reliability age, heat
+// ETA + progress, a control row (Off/Spa/Jets for spa, Off/Pool for pool), and a
+// tappable Setpoint row → bottom sheet.
+function BodyCard({ title, body, control, setpoint, onSet }) {
+  const [sheet, setSheet] = useState(false);
+  if (!body) return null;
+  const badge = bodyBadge(body);
+  const td = body.temperature_display;
+  const temp = td && td.value != null ? td.value : body.temperature;
+  const age = td && td.last_reliable_at_unix_ms ? timeAgo(td.last_reliable_at_unix_ms) : "";
+  const { text: etaText, pct } = heatEstimate(body);
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <div className="card-title">{title}</div>
+        <span className={"badge " + badge.tone}>{badge.text}</span>
+      </div>
+      <div className="spa-temp-row">
+        <span className="spa-temp-val">
+          {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
+        </span>
+        {age ? <span className="card-status">{age}</span> : null}
+      </div>
+      {etaText ? <div className="spa-heat-info">{etaText}</div> : null}
+      {pct > 0 ? (
+        <div className="heat-progress"><div className="heat-progress-bar" style={{ width: pct + "%" }} /></div>
+      ) : null}
+      {control}
+      <div className="spa-set-row" onClick={() => setSheet(true)}>
+        <span className="spa-set-label">Setpoint</span>
+        <span className="spa-set-val">
+          {(body.setpoint != null ? body.setpoint : "--") + "°F"} <span className="spa-set-arrow">›</span>
+        </span>
+      </div>
+      {sheet ? (
+        <PoolSetpointSheet title={title + " Temperature"} value={body.setpoint}
+                           onSet={onSet} onClose={() => setSheet(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+// Spa Off / Spa / Jets segmented pills (pentair). Drives /api/command.
+function SpaSeg({ spa, command }) {
+  const jets = spa && spa.accessories && spa.accessories.jets;
+  const cur = spa && spa.on ? (jets ? "jets" : "spa") : "off";
+  const opts = [["off", "Off"], ["spa", "Spa"], ["jets", "Jets"]];
+  return (
+    <div className="spa-seg">
+      {opts.map(([key, label]) => (
+        <button key={key} className={"spa-seg-btn" + (key === cur ? " active" : "")}
+                onClick={() => command("pool", "spa", { state: key })}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+// Pool Off / Pool segmented pills (pentair pool body toggle).
+function PoolSeg({ pool, command }) {
+  const cur = pool && pool.on ? "pool" : "off";
+  const opts = [["off", "Off"], ["pool", "Pool"]];
+  return (
+    <div className="spa-seg">
+      {opts.map(([key, label]) => (
+        <button key={key} className={"spa-seg-btn" + (key === cur ? " active" : "")}
+                onClick={() => command("pool", "pool", { on: key === "pool" })}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+// Pentair 5-column color swatch grid for the Lights card. An Off swatch first,
+// then one circular swatch per available_mode, active ring on the current mode.
+function LightsCard({ lights, command }) {
+  if (!lights) return null;
+  const on = !!lights.on;
+  const mode = (lights.mode || "").toLowerCase();
+  // Drop pentair plumbing modes (not user-selectable colors/scenes), matching
+  // the home pool adapter's _PLUMBING_MODES filter.
+  const PLUMBING = { off: 1, on: 1, set: 1, sync: 1 };
+  const modes = (lights.available_modes || []).filter((m) => !PLUMBING[m.toLowerCase()]);
+  let statusText = "Off";
+  if (on && lights.mode) statusText = lights.mode.charAt(0).toUpperCase() + lights.mode.slice(1);
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <div className="card-title">Lights</div>
+        <span className={"card-status" + (on ? " lights-status-on" : "")}>{statusText}</span>
+      </div>
+      <div className="swatches grid5">
+        <button className={"swatch" + (!on ? " on" : "")}
+                style={{ background: SWATCH_BG.off, color: "var(--label2)" }}
+                aria-label="Off" onClick={() => command("pool", "lights", { on: false })}>
+          {POWER_SVG}
+        </button>
+        {modes.map((m) => {
+          const key = m.toLowerCase();
+          const bg = SWATCH_BG[key] || "var(--track)";
+          const active = on && key === mode;
+          return (
+            <button key={m} className={"swatch" + (active ? " on" : "")}
+                    style={{ background: bg }} aria-label={m}
+                    onClick={() => command("pool", "lights", { mode: m })} />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Auxiliaries: a wrapping row of toggle buttons (pentair). Each → /api/command.
+function AuxCard({ auxiliaries, command }) {
+  if (!auxiliaries || !auxiliaries.length) return null;
+  return (
+    <div className="card">
+      <div className="card-title-row"><div className="card-title">Auxiliaries</div></div>
+      <div className="auxs">
+        {auxiliaries.map((a) => (
+          <button key={a.id} className={"aux-btn" + (a.on ? " on" : "")}
+                  onClick={() => command("pool", a.id, { on: !a.on })}>{a.name || a.id}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Read-only pump + system details (pentair tech drawer).
+function PumpCard({ pump, system }) {
+  if (!pump && !system) return null;
+  const rows = [];
+  if (system) {
+    rows.push(["Equipment Pad", (system.air_temperature != null ? system.air_temperature + "°F" : "--")]);
+    if (system.controller) rows.push(["Controller", system.controller]);
+    if (system.firmware) rows.push(["Firmware", system.firmware]);
+    if (system.freeze_protection != null) rows.push(["Freeze Protection", system.freeze_protection ? "On" : "Off"]);
+  }
+  if (pump) {
+    rows.push(["Pump", pump.pump_type + (pump.running ? " (running)" : " (off)")]);
+    rows.push(["RPM", pump.running ? pump.rpm + " RPM" : "—"]);
+    rows.push(["Power", pump.running ? pump.watts + " W" : "—"]);
+    rows.push(["Flow", pump.running ? pump.gpm + " GPM" : "—"]);
+  }
+  return (
+    <div className="card">
+      <div className="card-title-row"><div className="card-title">Pump &amp; System</div></div>
+      {rows.map(([label, val], i) => (
+        <div className="tech-row" key={i}>
+          <span className="tech-label">{label}</span>
+          <span className="tech-val">{val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// PoolTab: fetches the raw pentair pool state on mount and on each SSE tick.
+function PoolTab({ streamTick }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(() => {
+    apiFetch("/api/raw/pool")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && !d.error) { setData(d); setError(false); }
+        else setError(true);
+      })
+      .catch(() => { /* 401 redirects via apiFetch; other errors → keep last good */ });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  // Re-fetch on every SSE frame (the stream already fires on pool changes).
+  useEffect(() => { if (streamTick) load(); }, [streamTick, load]);
+
+  // Command helpers. Normalized controls go through /api/command; pool heat goes
+  // through the raw passthrough. Both optimistically reload shortly after.
+  const command = useCallback((domain, id, payload) => {
+    postCommand(domain, id, payload).then(() => setTimeout(load, 350));
+  }, [load]);
+  const setBodyHeat = useCallback((bodyKey, setpoint) => {
+    // home models spa_setpoint as a Control; pool setpoint uses the raw passthrough.
+    if (bodyKey === "spa") {
+      postCommand("pool", "spa_setpoint", { setpoint }).then(() => setTimeout(load, 350));
+    } else {
+      apiFetch("/api/raw/pool/cmd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "/api/pool/heat", body: { setpoint } }),
+      }).then(() => setTimeout(load, 350)).catch(() => {});
+    }
+  }, [load]);
+
+  if (!data) {
+    return (
+      <div className="card">
+        <div className="card-status">
+          {error ? "Pool backend unavailable." : "Loading pool…"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <React.Fragment>
+      {data.pool ? (
+        <BodyCard title="Pool" body={data.pool}
+                  control={<PoolSeg pool={data.pool} command={command} />}
+                  onSet={(sp) => setBodyHeat("pool", sp)} />
+      ) : null}
+      {data.spa ? (
+        <BodyCard title="Spa" body={data.spa}
+                  control={<SpaSeg spa={data.spa} command={command} />}
+                  onSet={(sp) => setBodyHeat("spa", sp)} />
+      ) : null}
+      <LightsCard lights={data.lights} command={command} />
+      <AuxCard auxiliaries={data.auxiliaries} command={command} />
+      <PumpCard pump={data.pump} system={data.system} />
+    </React.Fragment>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────
 const TABS = [
   { id: "home", label: "Home" },
@@ -1334,6 +1666,8 @@ function App() {
   const [sections, setSections] = useState([]);    // [{title, ids:[{domain,id}], snapshot:{key->control}}]
   const [tab, setTab] = useState("home");
   const [connected, setConnected] = useState(false);
+  // Bumped on each SSE frame so the faithful Pool tab can re-fetch /api/raw/pool.
+  const [streamTick, setStreamTick] = useState(0);
   const draggingRef = useRef(false);
   // Central optimistic overlay: key "domain:id" -> { fields:{...predicted...} }.
   // A tap reflects instantly via these fields; SSE reconciliation (or a 6s
@@ -1406,7 +1740,7 @@ function App() {
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
-        if (d && d.controls) { setConnected(true); setState(d); }
+        if (d && d.controls) { setConnected(true); setState(d); setStreamTick((t) => t + 1); }
       } catch (e) { /* ignore malformed frame */ }
     };
     es.onerror = () => {
@@ -1495,6 +1829,9 @@ function App() {
   let body;
   if (tab === "home") {
     body = <HomeSections sections={sections} byKey={byKey} command={command} mergeFn={merge} />;
+  } else if (tab === "pool") {
+    // Faithful pentair Pool tab: renders the real pentair cards from raw state.
+    body = <PoolTab streamTick={streamTick} />;
   } else {
     const domainControls = (state.controls || [])
       .filter((c) => c.domain === tab)
