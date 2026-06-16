@@ -104,6 +104,90 @@ def test_raw_pool_returns_backend_state():
     assert r.get_json() == sample
 
 
+class FakeGateAdapter:
+    domain = "gate"
+
+    def __init__(self, raw=None, image=None):
+        self._raw = (
+            raw
+            if raw is not None
+            else [
+                {
+                    "id": "door1",
+                    "name": "Front Gate",
+                    "is_online": True,
+                    "status": "locked",
+                    "imageUrl": "/door-image/door1",
+                    "is_held": False,
+                    "hold_state": None,
+                    "expires_at": None,
+                }
+            ]
+        )
+        self._image = image
+        self.image_requests = []
+
+    def snapshot(self):
+        return [Control("gate", "door1", "Front Gate", "tristate", on=False)]
+
+    def command(self, cid, payload):
+        pass
+
+    def raw(self):
+        return self._raw
+
+    def door_image(self, door_id):
+        self.image_requests.append(door_id)
+        if self._image is None:
+            raise requests.HTTPError("404 Not Found")
+        return self._image
+
+    def start(self, on_change):
+        pass
+
+
+def make_gate_client(raw=None, image=None):
+    adapter = FakeGateAdapter(raw=raw, image=image)
+    agg = Aggregator({"gate": adapter})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    return app.test_client(), adapter
+
+
+def test_raw_gate_returns_backend_doors():
+    sample = [
+        {
+            "id": "door1",
+            "name": "Front Gate",
+            "is_online": True,
+            "status": "open",
+            "imageUrl": "/door-image/door1",
+            "is_held": True,
+            "hold_state": "hold_forever",
+            "expires_at": None,
+        }
+    ]
+    client, _ = make_gate_client(raw=sample)
+    r = client.get("/api/raw/gate")
+    assert r.status_code == 200
+    assert r.get_json() == sample
+
+
+def test_raw_gate_image_proxies_bytes():
+    client, adapter = make_gate_client(image=(b"\xff\xd8jpegbytes", "image/jpeg"))
+    r = client.get("/api/raw/gate/image/door1")
+    assert r.status_code == 200
+    assert r.data == b"\xff\xd8jpegbytes"
+    assert r.mimetype == "image/jpeg"
+    assert adapter.image_requests == ["door1"]
+
+
+def test_raw_gate_image_missing_returns_404():
+    client, _ = make_gate_client(image=None)
+    r = client.get("/api/raw/gate/image/door1")
+    assert r.status_code == 404
+
+
 def test_raw_pool_cmd_passes_through():
     client, adapter = make_pool_client()
     r = client.post("/api/raw/pool/cmd", json={"path": "/api/pool/heat", "body": {"setpoint": 88}})

@@ -3,6 +3,8 @@ import threading
 import time
 from urllib.parse import quote
 
+import requests
+
 from homed.adapters.base import Adapter
 from homed.model import Control
 
@@ -23,14 +25,33 @@ def _door_view(d):
         return None, "Open"
     # Older daemons / synthetic aggregate have no lock_state: fall back to the
     # flattened position-based status.
-    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(
-        d.get("status"), "Unknown"
-    )
+    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
     return None, lock
 
 
 class GateAdapter(Adapter):
     domain = "gate"
+
+    def raw(self):
+        """Return the full, unnormalized unifi-gate door list (GET /devices).
+
+        Used by the faithful unifi-gate-style Gate tab, which renders the door
+        cards directly rather than the home-normalized Controls. Carries the
+        same injected X-Verified-User header used by every other request.
+        """
+        return self.get_json("/devices")
+
+    def door_image(self, door_id):
+        """Fetch a door's snapshot/cover image from unifi-gate.
+
+        Proxies ``GET /door-image/<door_id>`` and returns (content_bytes,
+        content_type). The door_id is URL-quoted. Raises on HTTP error so the
+        server route can map failures to 404.
+        """
+        url = self.base_url + "/door-image/" + quote(door_id, safe="")
+        r = requests.get(url, headers=self.headers, timeout=self.timeout)
+        r.raise_for_status()
+        return r.content, r.headers.get("Content-Type", "image/jpeg")
 
     def snapshot(self):
         doors = self.get_json("/devices")

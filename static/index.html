@@ -321,6 +321,57 @@ input[type=range]::-moz-range-thumb {
 }
 .gate-btn.busy { background: rgba(45,212,191,.25); color: var(--teal); box-shadow: none; }
 
+/* ── Faithful unifi-gate door cards ─────── */
+.gate-door {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.gate-door.offline { opacity: .55; }
+.gate-door-top {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+}
+.gate-door-img {
+  width: 84px; height: 52px; flex-shrink: 0; border-radius: 12px;
+  background: var(--fill); overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.gate-door-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gate-door-icon {
+  width: 48px; height: 48px; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(248,113,113,.16); color: #f87171;
+  box-shadow: inset 0 0 0 1px rgba(248,113,113,.3);
+  transition: background .3s ease-out, color .3s ease-out, box-shadow .3s ease-out;
+}
+.gate-door-icon.open {
+  background: rgba(45,212,191,.18); color: var(--teal);
+  box-shadow: inset 0 0 0 1px rgba(45,212,191,.4);
+}
+.gate-door-icon.offline {
+  background: rgba(255,255,255,.06); color: var(--label3);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.gate-door-icon svg { width: 24px; height: 24px; display: block; }
+.gate-door-meta { min-width: 0; flex: 1; }
+.gate-door-name {
+  font-size: var(--fs-name); font-weight: 600; color: var(--label);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gate-door-status {
+  font-size: var(--fs-sub); font-weight: 500; margin-top: 2px;
+  color: #f87171;
+}
+.gate-door-status.open { color: var(--teal); }
+.gate-door-status.offline { color: var(--label2); }
+.gate-door-status .link {
+  cursor: pointer; text-decoration: underline; text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.gate-door-spin { flex-shrink: 0; }
+
 /* setpoint stepper (inline +/- around a big value) */
 .stepper { display: flex; align-items: center; gap: 14px; }
 .step-btn {
@@ -1531,6 +1582,199 @@ function PumpCard({ pump, system }) {
   );
 }
 
+// ── Faithful unifi-gate Gate tab ───────────────────────────────
+// Renders the real unifi-gate door cards (door image/lock icon, name, status,
+// and the Open: Once / Until <time> / Forever button group) directly from the
+// raw door list at GET /api/raw/gate. Commands go through /api/command with
+// {domain:"gate", id:<door_id>, payload:{action:...}}. Stays live by re-fetching
+// on every SSE frame.
+
+// Default "hold today" end hour (6 PM), mirroring unifi-gate.
+const GATE_DEFAULT_END_HOUR = 18;
+const GATE_DEFAULT_END_DISPLAY = (() => {
+  const h = GATE_DEFAULT_END_HOUR % 12 || 12;
+  return `${h}${GATE_DEFAULT_END_HOUR >= 12 ? "p" : "a"}`;
+})();
+
+// "6p" / "7:30p" style from a Date.
+function gateTimeShort(d) {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const suf = h >= 12 ? "p" : "a";
+  const hh = h % 12 || 12;
+  return m > 0 ? `${hh}:${String(m).padStart(2, "0")}${suf}` : `${hh}${suf}`;
+}
+
+// One faithful door card. Mirrors unifi-gate's DoorRow: image/lock-icon slot,
+// name + status line (Locked / Open · until X / Open · forever / Offline), and
+// the Open button group (Once / Until / Forever) with green-highlighted holds.
+function GateDoor({ door, onCommand }) {
+  const [busy, setBusy] = useState(false);   // Once tap pulse
+  const [sheet, setSheet] = useState(false);
+  // Fall back to the lock-icon when the proxied door image can't be fetched
+  // (unifi-gate cover images need UniFi-OS cookie auth, which may be absent).
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const holdState = door.hold_state || null;  // "hold_today" | "hold_forever" | null
+  const isHeld = !!door.is_held;
+  const statusStr = (door.status || "").toLowerCase();
+  const isUnlocked = statusStr.includes("unlock") || statusStr === "open";
+  const isOpen = isHeld || isUnlocked;
+  const online = door.is_online !== false;
+
+  const expiryDisplay = (() => {
+    if (!isHeld || !door.expires_at) return null;
+    if (holdState === "hold_forever") return "forever";
+    return gateTimeShort(new Date(door.expires_at * 1000));
+  })();
+
+  const isPast6pm = new Date().getHours() >= GATE_DEFAULT_END_HOUR;
+
+  const run = (payload) => onCommand(door.id, payload);
+  const once = async () => {
+    if (busy || !online) return;
+    setBusy(true);
+    run({ action: "unlock" });
+    setTimeout(() => setBusy(false), 1500);
+  };
+  const onUntil = () => {
+    if (!online) return;
+    if (holdState === "hold_today") run({ action: "stop" });
+    else if (isPast6pm) setSheet(true);
+    else run({ action: "hold_today" });
+  };
+  const onForever = () => {
+    if (!online) return;
+    run({ action: holdState === "hold_forever" ? "stop" : "hold_forever" });
+  };
+
+  // Status line text.
+  let statusNode;
+  let statusCls = "gate-door-status";
+  if (!online) {
+    statusNode = "Offline";
+    statusCls += " offline";
+  } else if (isOpen) {
+    statusCls += " open";
+    if (holdState === "hold_forever") {
+      statusNode = "Open · forever";
+    } else if (holdState === "hold_today" && expiryDisplay) {
+      statusNode = (
+        <span className="link" onClick={() => setSheet(true)}>
+          Open · until {expiryDisplay}
+        </span>
+      );
+    } else {
+      statusNode = "Open";
+    }
+  } else {
+    statusNode = "Locked";
+  }
+
+  const untilLabel = holdState === "hold_today" && expiryDisplay
+    ? `Until ${expiryDisplay}`
+    : (isPast6pm ? "Until…" : `Until ${GATE_DEFAULT_END_DISPLAY}`);
+
+  // GateHoldSheet expects a control-like object with name/status/mode.
+  const sheetControl = {
+    domain: "gate",
+    id: door.id,
+    name: door.name,
+    status: isHeld && door.expires_at && holdState === "hold_today"
+      ? "Held until " + new Date(door.expires_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : door.status,
+  };
+  const sheetMode = holdState === "hold_today" ? "timed" : (holdState === "hold_forever" ? "forever" : null);
+
+  const hasImage = !!door.imageUrl && !imgFailed;
+
+  return (
+    <div className={"gate-door" + (online ? "" : " offline")}>
+      <div className="gate-door-top">
+        {hasImage ? (
+          <div className="gate-door-img">
+            <img src={`/api/raw/gate/image/${encodeURIComponent(door.id)}`} alt={door.name}
+                 onError={() => setImgFailed(true)} />
+          </div>
+        ) : (
+          <div className={"gate-door-icon" + (!online ? " offline" : (isOpen ? " open" : ""))}>
+            {isOpen ? UNLOCK_SVG : LOCK_SVG}
+          </div>
+        )}
+        <div className="gate-door-meta">
+          <div className="gate-door-name">{door.name}</div>
+          <div className={statusCls}>{statusNode}</div>
+        </div>
+        {busy ? <span className="spin gate-door-spin" /> : null}
+      </div>
+
+      <div className="gate-open-label">Open</div>
+      <div className="gate-actions">
+        <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!online}
+                onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
+        <button className={"gate-btn" + (holdState === "hold_today" ? " held" : "")}
+                disabled={!online} onClick={onUntil}>{untilLabel}</button>
+        <button className={"gate-btn" + (holdState === "hold_forever" ? " held" : "")}
+                disabled={!online} onClick={onForever}>Forever</button>
+      </div>
+
+      {sheet ? (
+        <GateHoldSheet control={sheetControl} mode={sheetMode}
+                       command={(_c, payload) => run(payload)}
+                       onClose={() => setSheet(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+// GateTab: fetches the raw door list on mount and on each SSE tick, renders a
+// faithful unifi-gate door card per door.
+function GateTab({ streamTick }) {
+  const [doors, setDoors] = useState(null);
+  const [error, setError] = useState(false);
+
+  const load = useCallback(() => {
+    apiFetch("/api/raw/gate")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d)) { setDoors(d); setError(false); }
+        else setError(true);
+      })
+      .catch(() => { /* 401 redirects via apiFetch; keep last good otherwise */ });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (streamTick) load(); }, [streamTick, load]);
+
+  const command = useCallback((doorId, payload) => {
+    postCommand("gate", doorId, payload).then(() => setTimeout(load, 350));
+  }, [load]);
+
+  if (!doors) {
+    return (
+      <div className="card">
+        <div className="card-status">
+          {error ? "Gate backend unavailable." : "Loading gate…"}
+        </div>
+      </div>
+    );
+  }
+  if (!doors.length) {
+    return (
+      <div className="card">
+        <div className="card-status">No doors.</div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {doors.map((door) => (
+        <GateDoor key={door.id} door={door} onCommand={command} />
+      ))}
+    </div>
+  );
+}
+
 // PoolTab: fetches the raw pentair pool state on mount and on each SSE tick.
 function PoolTab({ streamTick }) {
   const [data, setData] = useState(null);
@@ -1832,6 +2076,9 @@ function App() {
   } else if (tab === "pool") {
     // Faithful pentair Pool tab: renders the real pentair cards from raw state.
     body = <PoolTab streamTick={streamTick} />;
+  } else if (tab === "gate") {
+    // Faithful unifi-gate Gate tab: renders the real door cards from raw state.
+    body = <GateTab streamTick={streamTick} />;
   } else {
     const domainControls = (state.controls || [])
       .filter((c) => c.domain === tab)
