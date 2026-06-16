@@ -495,6 +495,26 @@ function iconFor(c) {
 }
 
 // ── API helpers ────────────────────────────────────────────────
+// Remote (silver-oauth) auth: when the gateway is behind the broker, API calls
+// answer 401 {authRequired:true} until the user has signed in. Treat any 401 as
+// "not signed in" and send the browser to the login endpoint (which 302s to the
+// broker for Google sign-in, then back). On LAN auth is open, so this never fires.
+function redirectToLogin() {
+  window.location.href = "/api/auth/login";
+}
+
+// fetch wrapper that redirects to sign-in on a 401 instead of leaving the SPA
+// on a blank page. Returns the Response on success; on 401 it kicks off the
+// redirect and rejects so callers don't try to parse an unauthenticated body.
+async function apiFetch(url, opts) {
+  const res = await fetch(url, { credentials: "same-origin", ...(opts || {}) });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("not signed in");
+  }
+  return res;
+}
+
 async function postCommand(domain, id, payload) {
   try {
     const r = await fetch("/api/command", {
@@ -1320,12 +1340,39 @@ function App() {
   // safety timer) clears each entry.
   const [optimistic, setOptimistic] = useState({});
   const optimisticTimers = useRef({});             // key -> timeout id
+  // Auth gate. "checking" until /api/auth/me resolves; "ok" once we know we may
+  // load (LAN open, or remote + signed in). On remote-not-signed-in we redirect
+  // to sign-in and stay "checking" (the browser navigates away). Until "ok" we
+  // never start the data fetches / SSE, and we render a minimal Loading shell
+  // instead of a blank page.
+  const [authState, setAuthState] = useState("checking");
+
+  // On mount, resolve the auth challenge before doing anything else.
+  // - {authRequired:false}                  → LAN, open → proceed.
+  // - {authRequired:true, email:"…"}         → remote, signed in → proceed.
+  // - {authRequired:true} without an email   → remote, NOT signed in → redirect.
+  // - 401 (handled by apiFetch)              → NOT signed in → redirect.
+  useEffect(() => {
+    apiFetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.authRequired && !d.email) {
+          redirectToLogin();
+          return;
+        }
+        setAuthState("ok");
+      })
+      .catch(() => { /* 401 already triggered redirect; stay on Loading */ });
+  }, []);
 
   // Initial paint + learn the Home section structure (titles + control ids/order).
+  // Gated on authState === "ok" so we never fetch (and surface a confusing 401)
+  // before the auth challenge is resolved.
   useEffect(() => {
-    fetch("/api/state", { credentials: "same-origin" })
+    if (authState !== "ok") return;
+    apiFetch("/api/state")
       .then((r) => r.json()).then((d) => setState(d)).catch(() => {});
-    fetch("/api/home", { credentials: "same-origin" })
+    apiFetch("/api/home")
       .then((r) => r.json())
       .then((d) => {
         // New shape: {sections:[{title, controls:[...]}]}. Fall back to the old
@@ -1346,10 +1393,14 @@ function App() {
         }));
       })
       .catch(() => {});
-  }, []);
+  }, [authState]);
 
-  // Live SSE stream.
+  // Live SSE stream. Also gated on auth; if the stream errors while the document
+  // is no longer authenticated (e.g. session expired → 401 on the SSE endpoint),
+  // a follow-up /api/state probe surfaces the 401 and redirects to sign-in rather
+  // than silently flipping the connection dot off forever.
   useEffect(() => {
+    if (authState !== "ok") return;
     const es = new EventSource("/api/stream");
     es.onopen = () => setConnected(true);
     es.onmessage = (ev) => {
@@ -1358,9 +1409,14 @@ function App() {
         if (d && d.controls) { setConnected(true); setState(d); }
       } catch (e) { /* ignore malformed frame */ }
     };
-    es.onerror = () => setConnected(false);   // EventSource auto-reconnects
+    es.onerror = () => {
+      setConnected(false);   // EventSource auto-reconnects on transient errors
+      // EventSource can't read the HTTP status, so probe a normal endpoint:
+      // a 401 there means our session is gone → apiFetch redirects to sign-in.
+      apiFetch("/api/state").catch(() => {});
+    };
     return () => es.close();
-  }, []);
+  }, [authState]);
 
   // Clear any pending optimistic safety timers on unmount.
   useEffect(() => () => {
@@ -1421,6 +1477,20 @@ function App() {
   (state.controls || []).forEach((c) => {
     byKey[c.domain + ":" + c.id] = merge(c);
   });
+
+  // While the auth check is in flight (or while a sign-in redirect is taking
+  // effect) render a minimal centered "Loading…" so the page is never blank.
+  if (authState !== "ok") {
+    return (
+      <div className="app" style={{ display: "flex", alignItems: "center",
+           justifyContent: "center", minHeight: "60vh" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10,
+             color: "var(--label2)", fontSize: 15 }}>
+          <span className="spin" /> Loading…
+        </div>
+      </div>
+    );
+  }
 
   let body;
   if (tab === "home") {
