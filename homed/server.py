@@ -89,6 +89,34 @@ def create_app(aggregator, home_rows, web):
             app.logger.warning("raw pool fetch failed: %s", e)
             return jsonify({"error": "backend fetch failed"}), 502
 
+    @app.get("/api/raw/gate")
+    def raw_gate():
+        try:
+            adapter = aggregator.adapters["gate"]
+        except KeyError:
+            return jsonify({"error": "no gate backend"}), 404
+        try:
+            return jsonify(adapter.raw())
+        except Exception as e:
+            app.logger.warning("raw gate fetch failed: %s", e)
+            return jsonify({"error": "backend fetch failed"}), 502
+
+    @app.get("/api/raw/gate/image/<path:door_id>")
+    def raw_gate_image(door_id):
+        try:
+            adapter = aggregator.adapters["gate"]
+        except KeyError:
+            return jsonify({"error": "no gate backend"}), 404
+        try:
+            content, content_type = adapter.door_image(door_id)
+        except Exception as e:
+            app.logger.warning("raw gate image fetch failed: %s", e)
+            return jsonify({"error": "door image unavailable"}), 404
+        # nosniff: the content-type is reflected from the upstream door-image
+        # response, so stop the browser from sniffing it into something active
+        # (e.g. an upstream text/html body executing in our same-origin context).
+        return Response(content, mimetype=content_type, headers={"X-Content-Type-Options": "nosniff"})
+
     @app.post("/api/raw/pool/cmd")
     def raw_pool_cmd():
         body = request.get_json(silent=True) or {}
