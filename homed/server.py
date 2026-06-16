@@ -89,6 +89,39 @@ def create_app(aggregator, home_rows, web):
             app.logger.warning("raw pool fetch failed: %s", e)
             return jsonify({"error": "backend fetch failed"}), 502
 
+    @app.get("/api/raw/fans")
+    def raw_fans():
+        try:
+            adapter = aggregator.adapters["fans"]
+        except KeyError:
+            return jsonify({"error": "no fans backend"}), 404
+        try:
+            return jsonify(adapter.raw())
+        except Exception as e:
+            app.logger.warning("raw fans fetch failed: %s", e)
+            return jsonify({"error": "backend fetch failed"}), 502
+
+    @app.post("/api/raw/fans/cmd")
+    def raw_fans_cmd():
+        body = request.get_json(silent=True)
+        # A non-object body (list/string/null) would AttributeError below; treat
+        # any non-dict payload as an empty request so error mapping stays clean.
+        if not isinstance(body, dict):
+            body = {}
+        path = body.get("path", "")
+        try:
+            adapter = aggregator.adapters["fans"]
+        except KeyError:
+            return jsonify({"error": "no fans backend"}), 404
+        try:
+            result = adapter.raw_command(path, body.get("body") or {})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            app.logger.warning("raw fans command failed: %s", e)
+            return jsonify({"error": "backend command failed"}), 502
+        return jsonify(result if isinstance(result, dict) else {"ok": True})
+
     @app.get("/api/raw/gate")
     def raw_gate():
         try:

@@ -1,6 +1,6 @@
 # homed/adapters/fans.py
 import threading
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import websocket
 
@@ -16,6 +16,49 @@ def _shared(values):
 
 class FansAdapter(Adapter):
     domain = "fans"
+
+    def raw(self):
+        """Return the full, unnormalized fans-app state (GET /api/fans).
+
+        Used by the faithful fans-app-style Patio tab, which renders the fans
+        app's own per-device card data directly rather than the home-normalized
+        Controls.
+        """
+        return self.get_json("/api/fans")
+
+    def raw_command(self, path: str, body: dict | None = None) -> dict:
+        """Pass a command straight through to the fans backend.
+
+        Only paths under ``/api/`` are allowed, and they must not embed a
+        scheme (``://``) — the URL is always built as ``base_url + path`` so
+        there is no opportunity for SSRF to an arbitrary host. Used for
+        per-device fans-app actions home does not model as Controls
+        (e.g. ``/api/fans/<id>``, ``/api/heaters/<id>``, ``/api/all``,
+        ``/api/sleep``, ``/api/goodnight``).
+        """
+        self._validate_raw_path(path)
+        return self.post_json(path, body or {})
+
+    @staticmethod
+    def _validate_raw_path(path: str) -> None:
+        """Raise ValueError unless ``path`` is a safe fans backend API path.
+
+        The URL is built as ``base_url + path``, so the host can't change. But
+        ``requests`` normalizes dot segments before sending ("/api/../admin" →
+        "/admin"), which would escape the ``/api/`` scope and hit non-API backend
+        paths. Decode percent-encoding (and normalize backslashes) first so
+        "%2e%2e"/"\\.." variants can't sneak a ".." or "//" past the check.
+        """
+        if not isinstance(path, str) or not path.startswith("/api/") or "://" in path:
+            raise ValueError("raw_command path must start with '/api/' and contain no scheme")
+        decoded = unquote(path).replace("\\", "/")
+        if (
+            ".." in decoded.split("/")
+            or "//" in decoded
+            or "\x00" in decoded
+            or any(c in decoded for c in ("\r", "\n"))
+        ):
+            raise ValueError("raw_command path may not contain '..', '//', or control characters")
 
     def snapshot(self):
         data = self.get_json("/api/fans")

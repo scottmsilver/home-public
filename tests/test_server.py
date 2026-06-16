@@ -204,6 +204,122 @@ def test_raw_pool_cmd_rejects_bad_path():
     assert adapter.raw_commands == []
 
 
+class FakeFansAdapter:
+    domain = "fans"
+
+    def __init__(self, raw=None):
+        self._raw = (
+            raw
+            if raw is not None
+            else {
+                "fans": [
+                    {
+                        "id": "fan1",
+                        "name": "Patio Fan",
+                        "online": True,
+                        "state": {"fanOn": True, "fanSpeed": 3, "lightOn": False, "lightBrightness": 0, "wind": False},
+                        "sleepRemaining": None,
+                    }
+                ],
+                "heaters": [
+                    {
+                        "id": "h1",
+                        "name": "Heater",
+                        "online": True,
+                        "state": {"on": False, "level": 0},
+                        "sleepRemaining": None,
+                    }
+                ],
+            }
+        )
+        self.raw_commands = []
+
+    def snapshot(self):
+        return [Control("fans", "fans", "All Fans", "speed", on=True)]
+
+    def command(self, cid, payload):
+        pass
+
+    def raw(self):
+        return self._raw
+
+    def raw_command(self, path, body=None):
+        # Delegate to the real adapter validation so the endpoint test exercises
+        # the actual path-boundary checks rather than a duplicate.
+        from homed.adapters.fans import FansAdapter
+
+        FansAdapter._validate_raw_path(path)
+        self.raw_commands.append((path, body or {}))
+        return {"ok": True}
+
+    def start(self, on_change):
+        pass
+
+
+def make_fans_client(raw=None):
+    adapter = FakeFansAdapter(raw=raw)
+    agg = Aggregator({"fans": adapter})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    return app.test_client(), adapter
+
+
+def test_raw_fans_returns_backend_state():
+    sample = {
+        "fans": [
+            {
+                "id": "fan1",
+                "name": "Patio Fan",
+                "online": True,
+                "state": {"fanOn": True, "fanSpeed": 4, "lightOn": True, "lightBrightness": 60, "wind": False},
+                "sleepRemaining": None,
+            }
+        ],
+        "heaters": [
+            {"id": "h1", "name": "Heater", "online": True, "state": {"on": True, "level": 50}, "sleepRemaining": None}
+        ],
+    }
+    client, _ = make_fans_client(raw=sample)
+    r = client.get("/api/raw/fans")
+    assert r.status_code == 200
+    assert r.get_json() == sample
+
+
+def test_raw_fans_cmd_passes_through():
+    client, adapter = make_fans_client()
+    r = client.post("/api/raw/fans/cmd", json={"path": "/api/fans/fan1", "body": {"fanOn": True, "fanSpeed": 3}})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True}
+    assert adapter.raw_commands == [("/api/fans/fan1", {"fanOn": True, "fanSpeed": 3})]
+
+
+def test_raw_fans_cmd_rejects_bad_path():
+    client, adapter = make_fans_client()
+    for bad in ("/evil", "http://evil/api/x", "/api/../admin", "/api//x"):
+        r = client.post("/api/raw/fans/cmd", json={"path": bad, "body": {}})
+        assert r.status_code == 400, bad
+    assert adapter.raw_commands == []
+
+
+def test_raw_fans_cmd_non_object_body_is_safe():
+    # A non-dict JSON body (list/string/null) must not 500; it maps to an empty
+    # request → missing path → 400 from validation.
+    client, adapter = make_fans_client()
+    for bad_body in ([], "x", 5):
+        r = client.post("/api/raw/fans/cmd", json=bad_body)
+        assert r.status_code == 400, bad_body
+    assert adapter.raw_commands == []
+
+
+def test_raw_fans_no_backend_returns_404():
+    agg = Aggregator({"pool": FakePoolAdapter()})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    client = app.test_client()
+    assert client.get("/api/raw/fans").status_code == 404
+    assert client.post("/api/raw/fans/cmd", json={"path": "/api/all", "body": {}}).status_code == 404
+
+
 def make_client_with_failing_adapter():
     agg = Aggregator({"gate": FailingAdapter()})
     agg.refresh_all()

@@ -59,9 +59,8 @@ body {
   min-height: 100%;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
-  display: flex; justify-content: center;
 }
-.app { width: 100%; max-width: 420px; padding: 0 16px calc(28px + env(safe-area-inset-bottom)); }
+.app { width: 100%; max-width: 420px; min-width: 0; margin: 0 auto; padding: 0 16px calc(28px + env(safe-area-inset-bottom)); }
 
 /* ── Large-title header ─────────────────── */
 .hdr {
@@ -154,7 +153,10 @@ body {
 .ctl-right { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 
 /* label-less group status (Patio summary rows, fans-app style) */
-.ctl-stat { flex-shrink: 0; font-size: var(--fs-sub); font-weight: 600; color: var(--label2); font-variant-numeric: tabular-nums; }
+.ctl-stat { flex-shrink: 0; min-width: 0; font-size: var(--fs-sub); font-weight: 600; color: var(--label2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* combo fan row when ON gets tight at 320px: let the stat shrink so the speed
+   pills + breeze never force horizontal overflow. */
+.ctl.on .ctl-stat { flex-shrink: 1; }
 .ctl-stat.warn { color: var(--orange); }
 /* subtle card-level offline warning (Patio summary card) */
 .card-warn { margin-top: 8px; font-size: var(--fs-sub); font-weight: 500; color: var(--orange); opacity: 0.85; }
@@ -227,6 +229,67 @@ input[type=range]::-moz-range-thumb {
   animation: spin .7s linear infinite; display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Patio (fans-app) extras ───────────────────────────────────── */
+/* compact breeze/wind pill shares the fan row; tap cycles Off→1→2→3 */
+.breeze {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+  padding: 9px 12px; border-radius: 12px;
+  background: var(--fill); border: none; cursor: pointer;
+  color: var(--label3); font-size: var(--fs-btn); font-weight: 600;
+  font-family: inherit; font-variant-numeric: tabular-nums;
+  transition: background .16s ease-out, color .16s ease-out, transform .15s ease-out;
+}
+.breeze:active { transform: scale(.92); }
+.breeze svg { width: 17px; height: 17px; }
+.breeze.on { background: rgba(56,189,248,.2); color: var(--blue); }
+
+/* sleep countdown chip on a device card header */
+.sleep-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--fs-sub); font-weight: 600; color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+.sleep-chip svg { width: 13px; height: 13px; }
+
+/* header moon (sleep timer) button */
+.moon-btn {
+  width: 36px; height: 36px; border-radius: 18px;
+  background: var(--fill); border: none; cursor: pointer;
+  color: var(--label); display: flex; align-items: center; justify-content: center;
+  transition: background .18s ease-out, transform .18s ease-out, color .18s;
+}
+.moon-btn:active { transform: scale(.92); }
+.moon-btn svg { width: 19px; height: 19px; }
+.moon-btn.armed { background: rgba(56,189,248,.26); color: var(--blue); }
+
+/* anchored breeze dropdown menu */
+.menu-backdrop { position: fixed; inset: 0; z-index: 19; }
+.menu {
+  position: fixed; z-index: 20; display: flex; flex-direction: column;
+  min-width: 132px; padding: 5px;
+  background: #16263f; border-radius: 13px;
+  box-shadow: 0 10px 34px rgba(0,0,0,.55), inset 0 0 0 .5px rgba(255,255,255,.08);
+}
+.menu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 12px; border: none; background: transparent; border-radius: 9px;
+  color: var(--label); font-size: 15px; font-weight: 500; font-family: inherit;
+  cursor: pointer; text-align: left;
+}
+.menu button:active { background: rgba(255,255,255,.09); }
+.menu button.on { color: var(--blue); font-weight: 600; }
+
+/* sleep-timer preset grid in the action sheet */
+.sleep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.sleep-opt {
+  padding: 15px 0; border-radius: 13px;
+  background: var(--fill); border: none;
+  color: var(--label); font-size: 15px; font-weight: 500; font-family: inherit;
+  cursor: pointer; font-variant-numeric: tabular-nums;
+  transition: background .15s ease-out, transform .15s ease-out;
+}
+.sleep-opt:active { background: var(--track); transform: scale(.95); }
 
 /* centered dialog / action sheet */
 .ov {
@@ -531,6 +594,8 @@ const LOCK_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const UNLOCK_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>);
 const POWER_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg>);
 const LIGHTBULB_SVG = (<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 21h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>);
+const WIND_SVG = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 8h9a3 3 0 1 0-3-3"/><path d="M3 12h13a3 3 0 1 1-3 3"/><path d="M3 16h6a2.5 2.5 0 1 1-2.5 2.5"/></svg>);
+const MOON_SVG = (<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 14.9A8.5 8.5 0 0 1 9.1 3.7a.6.6 0 0 0-.8-.8 9.7 9.7 0 1 0 12.8 12.8.6.6 0 0 0-.8-.8z"/></svg>);
 
 // Known mode/scene names → swatch color (for the modes color picker).
 const MODE_COLORS = {
@@ -1841,6 +1906,350 @@ function PoolTab({ streamTick }) {
   );
 }
 
+// ── Patio tab (faithful recreation of the fans app) ─────────────
+// Renders the fans-app UI directly from raw GET /api/raw/fans: combo "All
+// Fans / All Lights / All Heaters" controls at the top, then a card per fan
+// (fan on/off + speed 1–6 + breeze, light on/off + brightness slider), then
+// a card per heater (on/off + level slider), plus a sleep-timer + Goodnight
+// header control. Commands go through the raw passthrough POST /api/raw/fans/cmd.
+
+const SLEEP_PRESETS = [
+  { label: "15 min", minutes: 15 }, { label: "30 min", minutes: 30 },
+  { label: "1 hour", minutes: 60 }, { label: "2 hours", minutes: 120 },
+  { label: "4 hours", minutes: 240 }, { label: "8 hours", minutes: 480 },
+];
+
+function fmtRemaining(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return m ? h + "h " + m + "m" : h + "h";
+  }
+  const m = Math.floor(s / 60), ss = s % 60;
+  return m + ":" + String(ss).padStart(2, "0");
+}
+
+// Single discrete slider that fills with its --c color; value 0 == off.
+function PatioSlider({ value, color, onInput, suffix }) {
+  return (
+    <div className="slider-wrap" style={{ marginTop: 0 }}>
+      <input type="range" min="1" max="100" step="1" value={value}
+             style={{ "--pct": value + "%" }}
+             onInput={(e) => onInput(parseInt(e.target.value, 10))} />
+      {suffix !== false ? <span className="slider-val">{value}%</span> : null}
+    </div>
+  );
+}
+
+// Breeze (wind) dropdown: Off / Low / Medium / High → 0/1/2/3.
+function BreezeMenu({ current, anchor, onPick, onClose }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    if (!anchor || !ref.current) return;
+    const r = anchor.getBoundingClientRect();
+    const mr = ref.current.getBoundingClientRect();
+    let left = Math.min(r.right - mr.width, window.innerWidth - mr.width - 8);
+    let top = r.bottom + 6;
+    if (top + mr.height > window.innerHeight - 8) top = r.top - mr.height - 6;
+    setPos({ left: Math.max(8, left), top });
+  }, [anchor]);
+  return (
+    <React.Fragment>
+      <div className="menu-backdrop" onClick={onClose} />
+      <div className="menu" ref={ref} role="menu"
+           style={{ left: (pos ? pos.left : -9999) + "px", top: (pos ? pos.top : 0) + "px",
+                    visibility: pos ? "visible" : "hidden" }}>
+        {[["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]].map(([label, n]) => (
+          <button key={n} role="menuitemradio" aria-checked={current === n}
+                  className={current === n ? "on" : ""} onClick={() => onPick(n)}>
+            <span>{label}</span>{current === n ? <span>✓</span> : null}
+          </button>
+        ))}
+      </div>
+    </React.Fragment>
+  );
+}
+
+// One fan card: header (name + sleep chip / unreachable), fan row (icon toggle
+// + speed pills 1–6 + breeze), light row (icon toggle + brightness slider).
+function FanCard({ fan, deadline, cmd, onBreeze }) {
+  const st = fan.state || {};
+  const fanOn = !!st.fanOn;
+  const lightOn = !!st.lightOn;
+  const lightLevel = st.lightBrightness ?? 0;
+  const won = !!st.wind, ws = st.windSpeed || 0;
+  return (
+    <div className={"card" + (fan.online ? "" : " offline")} style={fan.online ? null : { opacity: .45 }}>
+      <div className="card-title-row">
+        <div className="card-title">{fan.name}</div>
+        {!fan.online ? <span className="card-status">Unreachable</span>
+          : deadline ? <span className="sleep-chip">{MOON_SVG}{fmtRemaining(deadline - Date.now())}</span> : null}
+      </div>
+
+      {/* fan row */}
+      <div className={"ctl" + (fanOn ? " on" : "")} style={{ "--c": "var(--cyan)" }}>
+        <button className="ctl-icon" aria-label={fan.name + " fan " + (fanOn ? "on" : "off")}
+                onClick={() => cmd({ fanOn: !fanOn })}>{FAN_SVG}</button>
+        {fanOn ? (
+          <div className="ctl-main">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <div className="segc" style={{ flex: 1, minWidth: 0, marginTop: 0 }}>
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <button key={n} className={"spd" + (st.fanSpeed === n ? " on" : "")}
+                          aria-label={fan.name + " speed " + n}
+                          onClick={() => cmd({ fanOn: true, fanSpeed: n })}>{n}</button>
+                ))}
+              </div>
+              <button className={"breeze" + (won ? " on" : "")} aria-label={fan.name + " breeze"}
+                      onClick={(e) => onBreeze(fan.id, won ? ws : 0, e.currentTarget)}>
+                {WIND_SVG}{won ? <span>{ws}</span> : null}
+              </button>
+            </div>
+          </div>
+        ) : <div className="ctl-spacer" />}
+      </div>
+
+      {/* light row */}
+      <div className={"ctl" + (lightOn ? " on" : "")} style={{ "--c": "var(--amber)" }}>
+        <button className="ctl-icon" aria-label={fan.name + " light " + (lightOn ? "on" : "off")}
+                onClick={() => cmd({ lightOn: !lightOn })}>{BULB_SVG}</button>
+        {lightOn ? (
+          <div className="ctl-main">
+            <PatioSlider value={lightLevel || 1} color="var(--amber)"
+                         onInput={(v) => cmd({ lightOn: v > 0, lightBrightness: v })} />
+          </div>
+        ) : <div className="ctl-spacer" />}
+      </div>
+    </div>
+  );
+}
+
+// One heater card: header + a single intensity slider (Leviton dimmer style).
+function HeaterCard({ heater, deadline, cmd }) {
+  const st = heater.state || {};
+  const level = st.level ?? 0;
+  const on = !!st.on && level > 0;
+  return (
+    <div className={"card" + (heater.online ? "" : " offline")} style={heater.online ? null : { opacity: .45 }}>
+      <div className="card-title-row">
+        <div className="card-title">{heater.name}</div>
+        {!heater.online ? <span className="card-status">Unreachable</span>
+          : deadline ? <span className="sleep-chip">{MOON_SVG}{fmtRemaining(deadline - Date.now())}</span> : null}
+      </div>
+      <div className={"ctl" + (on ? " on" : "")} style={{ "--c": "var(--orange)" }}>
+        <button className="ctl-icon" aria-label={heater.name + " " + (on ? "on" : "off")}
+                onClick={() => cmd({ power: !on })}>{HEAT_SVG}</button>
+        {on ? (
+          <div className="ctl-main">
+            <PatioSlider value={level || 1} color="var(--orange)"
+                         onInput={(v) => cmd({ level: v })} />
+          </div>
+        ) : <div className="ctl-spacer" />}
+      </div>
+    </div>
+  );
+}
+
+function PatioTab({ streamTick }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(false);
+  const [breeze, setBreeze] = useState(null);   // { id, current, anchor } | null
+  const [sleepOpen, setSleepOpen] = useState(false);
+  const [, forceTick] = useState(0);            // 1s ticker for the countdown chips
+
+  const load = useCallback(() => {
+    apiFetch("/api/raw/fans")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && !d.error && Array.isArray(d.fans)) { setData(d); setError(false); }
+        else setError(true);
+      })
+      .catch(() => { /* 401 redirects via apiFetch; keep last good otherwise */ });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (streamTick) load(); }, [streamTick, load]);
+
+  // Tick once a second so the sleep countdown chips update in place.
+  useEffect(() => {
+    const t = setInterval(() => forceTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Raw passthrough command, then reload to reconcile to truth.
+  const rawCmd = useCallback((path, body) => {
+    apiFetch("/api/raw/fans/cmd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, body: body || {} }),
+    }).then(() => setTimeout(load, 300)).catch(() => {});
+  }, [load]);
+
+  // encodeURIComponent the device id so reserved chars (?, #, /) in an upstream
+  // id can't reshape the path (matches the gate image path's encoding).
+  const fanCmd = useCallback((id, body) => rawCmd("/api/fans/" + encodeURIComponent(id), body), [rawCmd]);
+  const heaterCmd = useCallback((id, body) => rawCmd("/api/heaters/" + encodeURIComponent(id), body), [rawCmd]);
+  const allCmd = useCallback((body) => rawCmd("/api/all", body), [rawCmd]);
+
+  if (!data) {
+    return (
+      <div className="card">
+        <div className="card-status">{error ? "Patio backend unavailable." : "Loading patio…"}</div>
+      </div>
+    );
+  }
+
+  const fans = data.fans || [];
+  const heaters = data.heaters || [];
+  const now = Date.now();
+  const deadlineFor = (d) => d.sleepRemaining != null ? now + d.sleepRemaining * 1000 : null;
+  const anyArmed = [...fans, ...heaters].some((d) => d.sleepRemaining != null);
+
+  // ── Combo aggregate helpers (fans-app Home tab) ─────────────────
+  const fansOnAny = fans.some((f) => f.state && f.state.fanOn);
+  const lightsOnAny = fans.some((f) => f.state && f.state.lightOn);
+  const heatersOnAny = heaters.some((h) => h.state && h.state.on && (h.state.level ?? 0) > 0);
+  const onFans = fans.filter((f) => f.state && f.state.fanOn);
+  const sharedSpeed = onFans.length && onFans.every((f) => f.state.fanSpeed === onFans[0].state.fanSpeed)
+    ? onFans[0].state.fanSpeed : -1;
+  const breezeLv = (f) => f.state.wind ? f.state.windSpeed : 0;
+  const sharedBreeze = onFans.length && onFans.every((f) => breezeLv(f) === breezeLv(onFans[0]))
+    ? breezeLv(onFans[0]) : -1;
+  const avg = (list, get) => list.length
+    ? Math.round(list.reduce((a, x) => a + (get(x) || 0), 0) / list.length) : 0;
+  const onLights = fans.filter((f) => f.state && f.state.lightOn);
+  const lightAvg = avg(onLights, (f) => f.state.lightBrightness);
+  const onHeaters = heaters.filter((h) => h.state && h.state.on);
+  const heaterAvg = avg(onHeaters, (h) => h.state.level);
+
+  // group status (N of M, Mixed) — fans-app rowStat
+  const rowStat = (items, isOn, online, lvl, fmt) => {
+    const total = items.length, on = items.filter(isOn), off = items.filter((x) => !online(x)).length;
+    let t = "";
+    if (!on.length) t = "";
+    else if (on.length < total) t = on.length + " of " + total;
+    else { const v = on.map(lvl); t = v.every((x) => x === v[0]) ? fmt(v[0]) : "Mixed"; }
+    if (off) t = t ? t + " · " + off + " off" : off + " offline";
+    return <span className={"ctl-stat" + (off ? " warn" : "")}>{t}</span>;
+  };
+
+  // Heaters have no group endpoint — fan out per heater.
+  const allHeaters = (body) => heaters.forEach((h) => heaterCmd(h.id, body));
+
+  const pickBreeze = (n) => {
+    if (!breeze) return;
+    if (breeze.id === "all") allCmd(n > 0 ? { wind: true, windSpeed: n } : { wind: false });
+    else fanCmd(breeze.id, n > 0 ? { wind: true, windSpeed: n } : { wind: false });
+    setBreeze(null);
+  };
+
+  return (
+    <React.Fragment>
+      {/* ── Combo controls (All Fans / All Lights / All Heaters) ── */}
+      <div className="card">
+        {/* All Fans */}
+        <div className={"ctl" + (fansOnAny ? " on" : "")} style={{ "--c": "var(--cyan)" }}>
+          <button className="ctl-icon" aria-label={"all fans " + (fansOnAny ? "on" : "off")}
+                  onClick={() => allCmd({ fanOn: !fansOnAny })}>{FAN_SVG}</button>
+          {fansOnAny ? (
+            <div className="ctl-main">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <div className="segc" style={{ flex: 1, minWidth: 0, marginTop: 0 }}>
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <button key={n} className={"spd" + (sharedSpeed === n ? " on" : "")}
+                            aria-label={"all fans speed " + n}
+                            onClick={() => allCmd({ fanOn: true, fanSpeed: n })}>{n}</button>
+                  ))}
+                </div>
+                <button className={"breeze" + (sharedBreeze > 0 ? " on" : "")} aria-label="all fans breeze"
+                        onClick={(e) => setBreeze({ id: "all", current: sharedBreeze, anchor: e.currentTarget })}>
+                  {WIND_SVG}{sharedBreeze > 0 ? <span>{sharedBreeze}</span> : null}
+                </button>
+              </div>
+            </div>
+          ) : <div className="ctl-spacer" />}
+          {rowStat(fans, (f) => f.state.fanOn, (f) => f.online, (f) => f.state.fanSpeed, () => "")}
+        </div>
+
+        {/* All Lights */}
+        <div className={"ctl" + (lightsOnAny ? " on" : "")} style={{ "--c": "var(--amber)" }}>
+          <button className="ctl-icon" aria-label={"all lights " + (lightsOnAny ? "on" : "off")}
+                  onClick={() => allCmd({ lightOn: !lightsOnAny })}>{BULB_SVG}</button>
+          {lightsOnAny ? (
+            <div className="ctl-main">
+              <PatioSlider value={lightAvg || 1} color="var(--amber)" suffix={false}
+                           onInput={(v) => allCmd({ lightOn: true, lightBrightness: v })} />
+            </div>
+          ) : <div className="ctl-spacer" />}
+          {rowStat(fans, (f) => f.state.lightOn, (f) => f.online, (f) => f.state.lightBrightness, (v) => v + "%")}
+        </div>
+
+        {/* All Heaters */}
+        {heaters.length ? (
+          <div className={"ctl" + (heatersOnAny ? " on" : "")} style={{ "--c": "var(--orange)" }}>
+            <button className="ctl-icon" aria-label={"all heaters " + (heatersOnAny ? "on" : "off")}
+                    onClick={() => allHeaters({ power: !heatersOnAny })}>{HEAT_SVG}</button>
+            {heatersOnAny ? (
+              <div className="ctl-main">
+                <PatioSlider value={heaterAvg || 1} color="var(--orange)" suffix={false}
+                             onInput={(v) => allHeaters({ level: v })} />
+              </div>
+            ) : <div className="ctl-spacer" />}
+            {rowStat(heaters, (h) => h.state.on && (h.state.level ?? 0) > 0, (h) => h.online, (h) => h.state.level, (v) => v + "%")}
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Per-fan cards ── */}
+      {fans.map((f) => (
+        <FanCard key={f.id} fan={f} deadline={deadlineFor(f)}
+                 cmd={(body) => fanCmd(f.id, body)} onBreeze={(id, cur, a) => setBreeze({ id, current: cur, anchor: a })} />
+      ))}
+
+      {/* ── Per-heater cards ── */}
+      {heaters.map((h) => (
+        <HeaterCard key={h.id} heater={h} deadline={deadlineFor(h)} cmd={(body) => heaterCmd(h.id, body)} />
+      ))}
+
+      {/* ── Sleep timer + Goodnight ── */}
+      <div className="card">
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className={"pill" + (anyArmed ? " accent" : "")} style={{ flex: 1 }}
+                  onClick={() => setSleepOpen(true)}>Sleep Timer{anyArmed ? " (on)" : ""}</button>
+          <button className="pill" style={{ flex: 1 }}
+                  onClick={() => rawCmd("/api/goodnight", {})}>Goodnight</button>
+        </div>
+      </div>
+
+      {breeze ? (
+        <BreezeMenu current={breeze.current} anchor={breeze.anchor}
+                    onPick={pickBreeze} onClose={() => setBreeze(null)} />
+      ) : null}
+
+      {sleepOpen ? (
+        <div className="ov" onClick={(e) => { if (e.target.classList.contains("ov")) setSleepOpen(false); }}>
+          <div className="sheet">
+            <div className="sheet-title">{anyArmed ? "Sleep timer running" : "Turn everything off in…"}</div>
+            <div className="sheet-sub">Runs, then turns the patio off.</div>
+            <div className="sleep-grid">
+              {SLEEP_PRESETS.map((p) => (
+                <button key={p.minutes} className="sleep-opt"
+                        onClick={() => { rawCmd("/api/sleep", { minutes: p.minutes }); setSleepOpen(false); }}>{p.label}</button>
+              ))}
+            </div>
+            <button className="sheet-row" onClick={() => { rawCmd("/api/goodnight", {}); setSleepOpen(false); }}>Goodnight (off now)</button>
+            {anyArmed ? (
+              <button className="sheet-row danger" onClick={() => { rawCmd("/api/sleep", { minutes: 0 }); setSleepOpen(false); }}>Cancel timer</button>
+            ) : null}
+            <button className="sheet-row" onClick={() => setSleepOpen(false)}>Done</button>
+          </div>
+        </div>
+      ) : null}
+    </React.Fragment>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────
 const TABS = [
   { id: "home", label: "Home" },
@@ -2079,6 +2488,10 @@ function App() {
   } else if (tab === "gate") {
     // Faithful unifi-gate Gate tab: renders the real door cards from raw state.
     body = <GateTab streamTick={streamTick} />;
+  } else if (tab === "fans") {
+    // Faithful fans-app Patio tab: renders the real per-device cards + combo
+    // controls from raw GET /api/raw/fans (live via SSE re-fetch).
+    body = <PatioTab streamTick={streamTick} />;
   } else {
     const domainControls = (state.controls || [])
       .filter((c) => c.domain === tab)
