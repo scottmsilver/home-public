@@ -33,6 +33,39 @@ class PoolAdapter(Adapter):
         self._validate_raw_path(path)
         return self.post_json(path, body or {})
 
+    def goodnight(self):
+        """Bedtime: turn off the spa, the pool light, and any 'on' auxiliaries.
+
+        Leaves the main pool pump alone — filtration runs on its own schedule,
+        so a goodnight tap shouldn't disrupt it. Only switches off what is
+        currently on, so it's a no-op for anything already off.
+
+        Best-effort: every action is attempted even if an earlier one fails (a
+        failed spa-off must not leave the lights and auxiliaries on). If any
+        action failed, raise after attempting them all so the caller can report
+        the pool domain as failed.
+        """
+        data = self.get_json("/api/pool")
+        actions = []
+        spa = data.get("spa")
+        if spa and spa.get("on"):
+            actions.append("/api/spa/off")
+        lights = data.get("lights")
+        if lights and lights.get("on"):
+            actions.append("/api/lights/off")
+        for aux in data.get("auxiliaries", []):
+            if aux.get("on"):
+                actions.append(f"/api/auxiliary/{quote(aux['id'], safe='')}/off")
+
+        failures = []
+        for path in actions:
+            try:
+                self.post_json(path, {})
+            except Exception as e:
+                failures.append(f"{path}: {e}")
+        if failures:
+            raise RuntimeError("goodnight: " + "; ".join(failures))
+
     @staticmethod
     def _validate_raw_path(path: str) -> None:
         """Raise ValueError unless ``path`` is a safe pentair backend API path.

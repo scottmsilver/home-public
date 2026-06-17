@@ -1,5 +1,6 @@
 # homed/server.py
 import json
+import queue
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -167,6 +168,34 @@ def create_app(aggregator, home_rows, web):
             return jsonify({"error": "backend command failed"}), 502
         return jsonify(result if isinstance(result, dict) else {"ok": True})
 
+    @app.post("/api/goodnight")
+    def goodnight():
+        """Whole-house bedtime scene: every adapter that defines goodnight()
+        gets called (patio off, spa + pool light + on-auxiliaries off). Each
+        domain is independent — one backend failing doesn't block the others.
+        """
+        results = {}
+        for name, adapter in aggregator.adapters.items():
+            fn = getattr(adapter, "goodnight", None)
+            if not callable(fn):
+                continue
+            try:
+                fn()
+                results[name] = "ok"
+            except Exception as e:
+                app.logger.warning("goodnight failed for %s: %s", name, e)
+                results[name] = "error"
+            # Refresh whether the call succeeded or partially failed: devices may
+            # have changed either way, and this re-snapshots + pushes a fresh SSE
+            # frame so the UI reconciles deterministically instead of waiting on
+            # each backend's own websocket to fire.
+            try:
+                aggregator.refresh_domain(name)
+            except Exception:
+                pass
+        ok = all(v == "ok" for v in results.values())
+        return jsonify({"ok": ok, "domains": results})
+
     @app.get("/api/stream")
     def stream():
         q = aggregator.subscribe()
@@ -175,7 +204,14 @@ def create_app(aggregator, home_rows, web):
             try:
                 yield f"data: {json.dumps(aggregator.state())}\n\n"
                 while True:
-                    payload = q.get()
+                    try:
+                        payload = q.get(timeout=20)
+                    except queue.Empty:
+                        # Heartbeat: keeps proxies/tunnels from idling the
+                        # connection out, and lets the client detect a dead
+                        # ("zombie") stream — no ping in ~35s → it reconnects.
+                        yield "event: ping\ndata: 1\n\n"
+                        continue
                     yield f"data: {json.dumps(payload)}\n\n"
             finally:
                 aggregator.unsubscribe(q)

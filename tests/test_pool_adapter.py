@@ -178,3 +178,52 @@ def test_start_spawns_thread_without_error(monkeypatch):
     monkeypatch.setattr(poolmod.threading, "Thread", lambda *a, **k: type("T", (), {"start": lambda self: None})())
     t = PoolAdapter("http://p").start(lambda: None)
     assert t is not None
+
+
+# Bedtime state: spa on, pool light on, one aux on, one aux off.
+GOODNIGHT_SNAP = {
+    "pool": {"on": True, "temperature": 80},
+    "spa": {"on": True, "temperature": 88},
+    "lights": {"on": True, "mode": "blue"},
+    "auxiliaries": [
+        {"id": "water_feature", "name": "Water Feature", "on": True},
+        {"id": "cleaner", "name": "Cleaner", "on": False},
+    ],
+}
+
+
+@responses.activate
+def test_goodnight_turns_off_spa_light_and_on_auxes_only():
+    responses.add(responses.GET, "http://p/api/pool", json=GOODNIGHT_SNAP, status=200)
+    responses.add(responses.POST, "http://p/api/spa/off", json={"ok": True}, status=200)
+    responses.add(responses.POST, "http://p/api/lights/off", json={"ok": True}, status=200)
+    responses.add(responses.POST, "http://p/api/auxiliary/water_feature/off", json={"ok": True}, status=200)
+
+    PoolAdapter("http://p").goodnight()
+
+    posted = [c.request.url for c in responses.calls if c.request.method == "POST"]
+    assert any(u.endswith("/api/spa/off") for u in posted)
+    assert any(u.endswith("/api/lights/off") for u in posted)
+    assert any(u.endswith("/api/auxiliary/water_feature/off") for u in posted)
+    # The main pool pump and the already-off "cleaner" aux are left alone.
+    assert not any("/api/pool/off" in u for u in posted)
+    assert not any("cleaner" in u for u in posted)
+
+
+@responses.activate
+def test_goodnight_is_best_effort_then_raises():
+    # spa-off fails, but lights + aux must still be attempted, and the call
+    # must raise afterward so the server marks the pool domain as failed.
+    responses.add(responses.GET, "http://p/api/pool", json=GOODNIGHT_SNAP, status=200)
+    responses.add(responses.POST, "http://p/api/spa/off", json={"error": "boom"}, status=500)
+    responses.add(responses.POST, "http://p/api/lights/off", json={"ok": True}, status=200)
+    responses.add(responses.POST, "http://p/api/auxiliary/water_feature/off", json={"ok": True}, status=200)
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        PoolAdapter("http://p").goodnight()
+
+    posted = [c.request.url for c in responses.calls if c.request.method == "POST"]
+    assert any(u.endswith("/api/lights/off") for u in posted), "lights must still be attempted after spa-off fails"
+    assert any(u.endswith("/api/auxiliary/water_feature/off") for u in posted), "aux must still be attempted"

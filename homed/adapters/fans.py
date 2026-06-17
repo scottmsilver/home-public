@@ -39,6 +39,11 @@ class FansAdapter(Adapter):
         self._validate_raw_path(path)
         return self.post_json(path, body or {})
 
+    def goodnight(self):
+        """Bedtime: turn off every patio fan, light, and heater (cancels their
+        sleep timers too). Part of the home-wide goodnight scene."""
+        self.post_json("/api/goodnight", {})
+
     @staticmethod
     def _validate_raw_path(path: str) -> None:
         """Raise ValueError unless ``path`` is a safe fans backend API path.
