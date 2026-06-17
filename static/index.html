@@ -314,6 +314,8 @@ input[type=range]::-moz-range-thumb {
 }
 .sheet-row:active { background: var(--track); }
 .sheet-row.danger { color: var(--red); }
+.sheet-row.accent { background: rgba(56,189,248,.18); color: var(--blue); }
+.sheet-row svg { width: 18px; height: 18px; }
 .sheet-input {
   background: var(--fill); border: none; border-radius: 11px;
   padding: 11px 12px; color: var(--label); font-size: 16px; font-family: inherit;
@@ -2333,6 +2335,13 @@ function App() {
   // never start the data fetches / SSE, and we render a minimal Loading shell
   // instead of a blank page.
   const [authState, setAuthState] = useState("checking");
+  // Top-level "Goodnight" — one tap runs the whole-house bedtime scene: patio
+  // fans/lights/heaters off AND spa + pool light + on-auxiliaries off. No
+  // confirm; the server fans out per domain and SSE reconciles the UI.
+  const goodnight = useCallback(() => {
+    apiFetch("/api/goodnight", { method: "POST" })
+      .catch(() => { /* 401 redirects via apiFetch; SSE reconciles the rest */ });
+  }, []);
 
   // On mount, resolve the auth challenge before doing anything else.
   // - {authRequired:false}                  → LAN, open → proceed.
@@ -2388,21 +2397,72 @@ function App() {
   // than silently flipping the connection dot off forever.
   useEffect(() => {
     if (authState !== "ok") return;
-    const es = new EventSource("/api/stream");
-    es.onopen = () => setConnected(true);
-    es.onmessage = (ev) => {
-      try {
-        const d = JSON.parse(ev.data);
-        if (d && d.controls) { setConnected(true); setState(d); setStreamTick((t) => t + 1); }
-      } catch (e) { /* ignore malformed frame */ }
+    let es = null;
+    let closed = false;
+    const last = { t: Date.now() };   // last time ANY frame (data or ping) arrived
+    let lastProbe = 0;                // throttle the onerror auth probe
+
+    const connect = () => {
+      if (closed) return;
+      es = new EventSource("/api/stream");
+      es.onopen = () => { last.t = Date.now(); setConnected(true); };
+      es.onmessage = (ev) => {
+        last.t = Date.now();
+        try {
+          const d = JSON.parse(ev.data);
+          if (d && d.controls) { setConnected(true); setState(d); setStreamTick((t) => t + 1); }
+        } catch (e) { /* ignore malformed frame */ }
+      };
+      // Server heartbeat (~every 20s): proves the stream is alive even when no
+      // state is changing, so the watchdog below can tell "quiet" from "dead".
+      es.addEventListener("ping", () => { last.t = Date.now(); setConnected(true); });
+      es.onerror = () => {
+        setConnected(false);
+        // EventSource fires onerror repeatedly during an outage and can't read
+        // the HTTP status, so probe a normal endpoint to detect a 401 (session
+        // gone → apiFetch redirects to sign-in). Throttle to ≤1 probe / 15s so
+        // a long outage with many tabs doesn't fan out into a probe storm.
+        const now = Date.now();
+        if (now - lastProbe > 15000) {
+          lastProbe = now;
+          apiFetch("/api/state").catch(() => {});
+        }
+        // Native EventSource auto-reconnects on transient errors; the watchdog
+        // covers the zombie case where onerror never fires.
+      };
     };
-    es.onerror = () => {
-      setConnected(false);   // EventSource auto-reconnects on transient errors
-      // EventSource can't read the HTTP status, so probe a normal endpoint:
-      // a 401 there means our session is gone → apiFetch redirects to sign-in.
-      apiFetch("/api/state").catch(() => {});
+
+    const reconnect = () => {
+      // Don't churn a connection that's mid-handshake: only tear down one that's
+      // actually OPEN-but-stale (zombie) or already CLOSED. A CONNECTING socket
+      // is native EventSource retry in progress — let it finish.
+      if (es && es.readyState === 0 /* CONNECTING */) return;
+      try { if (es) es.close(); } catch (e) { /* already closed */ }
+      setConnected(false);
+      connect();
     };
-    return () => es.close();
+
+    connect();
+
+    // Watchdog: heartbeats land every ~20s. If nothing has arrived in 35s the
+    // connection is a zombie (server restarted, tunnel dropped, laptop slept) —
+    // tear it down and open a fresh one so optimistic taps reconcile again.
+    const watchdog = setInterval(() => {
+      if (Date.now() - last.t > 35000) reconnect();
+    }, 10000);
+
+    // Reconnect right away when the tab is brought back to the foreground.
+    const onVis = () => {
+      if (document.visibilityState === "visible" && Date.now() - last.t > 10000) reconnect();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      closed = true;
+      clearInterval(watchdog);
+      document.removeEventListener("visibilitychange", onVis);
+      if (es) es.close();
+    };
   }, [authState]);
 
   // Clear any pending optimistic safety timers on unmount.
@@ -2510,6 +2570,8 @@ function App() {
           ))}
         </div>
         <div className="hdr-right">
+          <button className="moon-btn" aria-label="Goodnight — sleep the patio"
+                  title="Goodnight — sleep the patio" onClick={goodnight}>{MOON_SVG}</button>
           <div className={"conn-dot" + (connected ? "" : " off")}
                title={connected ? "Connected" : "Reconnecting…"} />
         </div>

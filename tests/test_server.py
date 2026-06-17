@@ -484,3 +484,67 @@ def test_auth_callback_rejects_bad_state():
         headers={"Host": "home.example.com"},
     )
     assert r.status_code == 400
+
+
+class GoodnightAdapter:
+    """Records goodnight() calls; optionally raises to test domain isolation."""
+
+    def __init__(self, domain, fail=False):
+        self.domain = domain
+        self._fail = fail
+        self.slept = False
+
+    def snapshot(self):
+        return [Control(self.domain, self.domain, self.domain, "toggle", on=True)]
+
+    def command(self, cid, payload):
+        pass
+
+    def goodnight(self):
+        if self._fail:
+            raise RuntimeError("backend down")
+        self.slept = True
+
+    def start(self, on_change):
+        pass
+
+
+class NoGoodnightAdapter:
+    """An adapter (like gate) with no goodnight() — must be skipped, not error."""
+
+    domain = "gate"
+
+    def snapshot(self):
+        return [Control("gate", "gate", "Gate", "lock", on=True)]
+
+    def command(self, cid, payload):
+        pass
+
+    def start(self, on_change):
+        pass
+
+
+def test_goodnight_fans_out_to_every_adapter_with_goodnight():
+    fans, pool, gate = GoodnightAdapter("fans"), GoodnightAdapter("pool"), NoGoodnightAdapter()
+    agg = Aggregator({"fans": fans, "pool": pool, "gate": gate})
+    agg.refresh_all()
+    client = create_app(agg, home_rows=[], web={}).test_client()
+    r = client.post("/api/goodnight")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["domains"] == {"fans": "ok", "pool": "ok"}  # gate skipped (no goodnight)
+    assert fans.slept and pool.slept
+
+
+def test_goodnight_one_domain_failing_does_not_block_others():
+    fans, pool = GoodnightAdapter("fans", fail=True), GoodnightAdapter("pool")
+    agg = Aggregator({"fans": fans, "pool": pool})
+    agg.refresh_all()
+    client = create_app(agg, home_rows=[], web={}).test_client()
+    r = client.post("/api/goodnight")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["domains"] == {"fans": "error", "pool": "ok"}
+    assert body["ok"] is False  # any domain failing → ok:false
+    assert pool.slept  # pool still ran despite fans raising
