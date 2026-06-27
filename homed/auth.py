@@ -31,6 +31,9 @@ class AuthGate:
         self.state_dir = Path(state_dir or Path("~/.home").expanduser())
         self.handoff_secret = self._read("BROKER_HANDOFF_SECRET", ".broker_handoff")
         self.session_secret = self._session_secret()
+        self.approved_path = self.state_dir / "approved_emails.json"
+        self._dynamic = self._load_approved()
+        self._used_grant_jti = set()
 
     def _read(self, env, name):
         v = os.environ.get(env, "").strip()
@@ -72,8 +75,37 @@ class AuthGate:
         host = _host(host_header).lower()
         return host == self.remote_domain or host.endswith("." + self.remote_domain)
 
+    def _load_approved(self):
+        import json
+
+        try:
+            data = json.loads(self.approved_path.read_text())
+            return {str(e).strip().lower() for e in data if str(e).strip()}
+        except (FileNotFoundError, ValueError, OSError):
+            return set()
+
+    def _persist_approved(self):
+        import json
+        import os
+
+        try:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.approved_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(sorted(self._dynamic)))
+            tmp.chmod(0o600)
+            os.replace(tmp, self.approved_path)  # atomic
+        except OSError:
+            pass
+
+    def approve_email(self, email):
+        e = (email or "").strip().lower()
+        if not e or e in self._dynamic:
+            return
+        self._dynamic.add(e)
+        self._persist_approved()
+
     def email_allowed(self, email):
-        return bool(email) and email.lower() in self.allowed
+        return bool(email) and email.lower() in (self.allowed | self._dynamic)
 
     def make_session(self, email):
         now = int(time.time())

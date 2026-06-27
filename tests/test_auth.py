@@ -1,5 +1,7 @@
 # tests/test_auth.py
+import json
 import time
+from pathlib import Path
 
 import jwt
 from flask import Flask
@@ -7,6 +9,31 @@ from flask import Flask
 from homed.auth import AuthGate
 
 CFG = {"remote_domain": "home.example.com", "broker_url": "https://b", "allowed_emails": ["you@gmail.com"]}
+
+
+def _gate(tmp_path, allowed=()):
+    return AuthGate(
+        {"remote_domain": "home.example.com", "broker_url": "https://b", "allowed_emails": list(allowed)},
+        state_dir=tmp_path,
+    )
+
+
+def test_approve_email_persists_and_unions_with_config(tmp_path):
+    g = _gate(tmp_path, allowed=["seed@x.com"])
+    assert g.email_allowed("seed@x.com")  # from config
+    assert not g.email_allowed("new@x.com")
+    g.approve_email("New@x.com")  # case-insensitive
+    assert g.email_allowed("new@x.com")
+    # persisted to disk and reloaded by a fresh gate
+    g2 = _gate(tmp_path, allowed=["seed@x.com"])
+    assert g2.email_allowed("new@x.com")
+    assert json.loads((Path(tmp_path) / "approved_emails.json").read_text()) == ["new@x.com"]
+
+
+def test_load_approved_tolerates_missing_and_corrupt(tmp_path):
+    (Path(tmp_path) / "approved_emails.json").write_text("{ not json")
+    g = _gate(tmp_path)
+    assert g.email_allowed("anyone@x.com") is False  # corrupt file → empty set, no crash
 
 
 def make_gate(tmp_path, handoff="hs", session="ss"):
