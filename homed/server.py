@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from flask import Flask, Response, jsonify, make_response, redirect, request, send_from_directory
 from werkzeug.utils import safe_join
 
-from homed.auth import HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
+from homed.auth import GRANT_COOKIE, HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -246,6 +246,9 @@ def create_app(aggregator, home_rows, web):
         cb = f"https://{gate.remote_domain}/api/auth/callback?{urlencode({'state': st})}"
         resp = make_response(redirect(f"{gate.broker_url}/start?{urlencode({'return_url': cb, 'scope': 'openid'})}"))
         resp.set_cookie(STATE_COOKIE, st, max_age=600, httponly=True, secure=_https(), samesite="Lax", path="/")
+        grant = request.args.get("grant", "")
+        if grant:
+            resp.set_cookie(GRANT_COOKIE, grant, max_age=600, httponly=True, secure=_https(), samesite="Lax", path="/")
         return resp
 
     @app.get("/api/auth/callback")
@@ -260,13 +263,22 @@ def create_app(aggregator, home_rows, web):
         if not email:
             resp = make_response("invalid handoff", 401)
             resp.delete_cookie(STATE_COOKIE, path="/")
+            resp.delete_cookie(GRANT_COOKIE, path="/")
             return resp
+        # On-network self-approve: a valid single-use grant ticket approves the
+        # broker-VERIFIED email (identity proven by the handoff, network-trust
+        # proven by the grant having been issued only to a LAN request).
+        grant = request.cookies.get(GRANT_COOKIE, "")
+        if grant and gate.consume_grant_ticket(grant):
+            gate.approve_email(email)
         if not gate.email_allowed(email):
             resp = make_response(f"{email} not allowed", 403)
             resp.delete_cookie(STATE_COOKIE, path="/")
+            resp.delete_cookie(GRANT_COOKIE, path="/")
             return resp
         resp = make_response(redirect("/"))
         resp.delete_cookie(STATE_COOKIE, path="/")
+        resp.delete_cookie(GRANT_COOKIE, path="/")
         resp.set_cookie(
             SESSION_COOKIE,
             gate.make_session(email),
