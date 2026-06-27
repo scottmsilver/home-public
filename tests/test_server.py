@@ -484,6 +484,17 @@ def test_grant_login_callback_approves_unlisted_email():
     assert client.get_cookie("home_session", domain="home.example.com") is not None
 
 
+def test_auth_me_reports_lan_flag():
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    lan = client.get("/api/auth/me", headers={"Host": "192.168.1.15:8099"}).get_json()
+    assert lan["lan"] is True and lan["authRequired"] is False
+    remote = client.get("/api/auth/me", headers={"Host": "home.example.com"})
+    # remote, not signed in → 401, but still reports lan:false
+    assert remote.status_code == 401 and remote.get_json()["lan"] is False
+
+
 def test_remote_request_without_cookie_blocked():
     client, _ = make_client(
         web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}

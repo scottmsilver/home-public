@@ -292,12 +292,13 @@ def create_app(aggregator, home_rows, web):
 
     @app.get("/api/auth/me")
     def auth_me():
-        if not gate.is_remote(request.headers.get("Host", "")) or not gate.fully_configured:
-            return jsonify({"email": None, "authRequired": False})
+        remote = gate.is_remote(request.headers.get("Host", "")) and gate.fully_configured
+        if not remote:
+            return jsonify({"email": None, "authRequired": False, "lan": True})
         email = gate.current_user()
         if not email:
-            return jsonify({"authRequired": True}), 401
-        return jsonify({"email": email, "authRequired": True})
+            return jsonify({"authRequired": True, "lan": False}), 401
+        return jsonify({"email": email, "authRequired": True, "lan": False})
 
     @app.post("/api/auth/logout")
     def auth_logout():
