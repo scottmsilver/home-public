@@ -219,6 +219,18 @@ def create_app(aggregator, home_rows, web):
         return Response(gen(), mimetype="text/event-stream")
 
     # ── auth dance ───────────────────────────────────────────────
+    @app.post("/api/auth/grant-start")
+    def auth_grant_start():
+        # On-network only: the Cloudflare tunnel always sets the remote Host, so
+        # is_remote==False proves the request came in on the LAN address.
+        if gate.is_remote(request.headers.get("Host", "")):
+            return jsonify({"error": "self-approve is only available on the local network"}), 403
+        if not gate.remote_domain or not gate.fully_configured:
+            return jsonify({"error": "remote access not configured"}), 503
+        ticket = gate.make_grant_ticket()
+        login_url = f"https://{gate.remote_domain}/api/auth/login?{urlencode({'grant': ticket})}"
+        return jsonify({"ticket": ticket, "login_url": login_url})
+
     @app.get("/api/auth/login")
     def auth_login():
         if not gate.is_remote(request.headers.get("Host", "")):

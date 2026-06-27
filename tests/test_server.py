@@ -425,6 +425,21 @@ def test_lan_request_open_when_remote_domain_set():
     assert client.get("/api/state").status_code == 200
 
 
+def test_grant_start_lan_issues_ticket_remote_forbidden():
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    # LAN host (not the remote domain) → ticket issued
+    r = client.post("/api/auth/grant-start", headers={"Host": "192.168.1.15:8099"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ticket"]
+    assert body["login_url"].startswith("https://home.example.com/api/auth/login?grant=")
+    # Remote host → refused (only on-network may self-approve)
+    r2 = client.post("/api/auth/grant-start", headers={"Host": "home.example.com"})
+    assert r2.status_code == 403
+
+
 def test_remote_request_without_cookie_blocked():
     client, _ = make_client(
         web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
