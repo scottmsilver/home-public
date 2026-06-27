@@ -36,6 +36,25 @@ def test_load_approved_tolerates_missing_and_corrupt(tmp_path):
     assert g.email_allowed("anyone@x.com") is False  # corrupt file → empty set, no crash
 
 
+def test_grant_ticket_roundtrip_single_use(tmp_path):
+    g = _gate(tmp_path)
+    t = g.make_grant_ticket()
+    assert g.consume_grant_ticket(t) is True  # first use ok
+    assert g.consume_grant_ticket(t) is False  # replay rejected (single-use)
+
+
+def test_grant_ticket_rejects_garbage_and_wrong_type(tmp_path):
+    import time
+
+    import jwt
+
+    g = _gate(tmp_path)
+    assert g.consume_grant_ticket("not-a-jwt") is False
+    # a session token (typ absent) must not be accepted as a grant
+    not_grant = jwt.encode({"email": "x@x.com", "exp": int(time.time()) + 60}, g.session_secret, algorithm="HS256")
+    assert g.consume_grant_ticket(not_grant) is False
+
+
 def make_gate(tmp_path, handoff="hs", session="ss"):
     g = AuthGate(CFG, state_dir=tmp_path)
     g.handoff_secret = handoff
