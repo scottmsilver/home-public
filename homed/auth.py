@@ -11,6 +11,7 @@ SESSION_COOKIE = "home_session"
 STATE_COOKIE = "home_oauth_state"
 HANDOFF_PARAM = "silver_oauth"
 SESSION_TTL = 30 * 86400
+GRANT_TTL = 600  # on-network self-approve ticket lifetime (seconds)
 PUBLIC_PATHS = {"/", "/api/auth/login", "/api/auth/callback", "/api/auth/me", "/api/auth/logout"}
 
 
@@ -112,6 +113,27 @@ class AuthGate:
         return jwt.encode(
             {"email": email, "iat": now, "exp": now + SESSION_TTL}, self.session_secret, algorithm="HS256"
         )
+
+    def make_grant_ticket(self):
+        now = int(time.time())
+        return jwt.encode(
+            {"typ": "grant", "jti": secrets.token_hex(8), "iat": now, "exp": now + GRANT_TTL},
+            self.session_secret,
+            algorithm="HS256",
+        )
+
+    def consume_grant_ticket(self, token):
+        try:
+            claims = jwt.decode(token, self.session_secret, algorithms=["HS256"], options={"require": ["exp"]})
+        except jwt.PyJWTError:
+            return False
+        if claims.get("typ") != "grant":
+            return False
+        jti = claims.get("jti")
+        if not jti or jti in self._used_grant_jti:
+            return False
+        self._used_grant_jti.add(jti)
+        return True
 
     def verify_session(self, value):
         try:
