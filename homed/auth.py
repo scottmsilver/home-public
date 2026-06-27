@@ -64,7 +64,10 @@ class AuthGate:
 
     @property
     def fully_configured(self):
-        return bool(self.handoff_secret and self.session_secret and self.allowed)
+        # Secrets are what make remote auth *usable*. An empty allow-list is a
+        # valid "no users approved yet" state — the on-network grant flow adds
+        # the first user — so it must NOT gate fully_configured.
+        return bool(self.handoff_secret and self.session_secret)
 
     @property
     def active(self):
