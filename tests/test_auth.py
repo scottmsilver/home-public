@@ -55,6 +55,12 @@ def test_grant_ticket_rejects_garbage_and_wrong_type(tmp_path):
     assert g.consume_grant_ticket(not_grant) is False
 
 
+def test_fully_configured_does_not_require_allowlist(tmp_path):
+    g = _gate(tmp_path, allowed=[])  # secrets present (auto-generated), no emails
+    g.handoff_secret = "h"  # simulate a configured handoff secret
+    assert g.fully_configured is True
+
+
 def make_gate(tmp_path, handoff="hs", session="ss"):
     g = AuthGate(CFG, state_dir=tmp_path)
     g.handoff_secret = handoff
