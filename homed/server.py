@@ -2,7 +2,7 @@
 import json
 import queue
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from flask import Flask, Response, jsonify, make_response, redirect, request, send_from_directory
 from werkzeug.utils import safe_join
@@ -221,10 +221,16 @@ def create_app(aggregator, home_rows, web):
     # ── auth dance ───────────────────────────────────────────────
     @app.post("/api/auth/grant-start")
     def auth_grant_start():
-        # On-network only: the Cloudflare tunnel always sets the remote Host, so
-        # is_remote==False proves the request came in on the LAN address.
-        if gate.is_remote(request.headers.get("Host", "")):
+        # On-network only, with POSITIVE local-origin validation (not merely
+        # "not the remote domain"): an IP-literal/localhost/allow-listed Host,
+        # which a DNS-rebinding page in a LAN browser cannot forge.
+        if not gate.is_trusted_local(request.headers.get("Host", "")):
             return jsonify({"error": "self-approve is only available on the local network"}), 403
+        # Defense in depth: a cross-origin POST (rebinding / CSRF) carries an
+        # Origin; reject it unless that origin is itself local.
+        origin = request.headers.get("Origin", "")
+        if origin and not gate.is_trusted_local(urlparse(origin).netloc):
+            return jsonify({"error": "bad origin"}), 403
         if not gate.remote_domain or not gate.fully_configured:
             return jsonify({"error": "remote access not configured"}), 503
         ticket = gate.make_grant_ticket()
@@ -292,9 +298,13 @@ def create_app(aggregator, home_rows, web):
 
     @app.get("/api/auth/me")
     def auth_me():
-        remote = gate.is_remote(request.headers.get("Host", "")) and gate.fully_configured
+        host = request.headers.get("Host", "")
+        # lan reflects where self-approve will actually work (trusted-local), so
+        # the SPA only shows "enable remote access" when grant-start will succeed.
+        lan = gate.is_trusted_local(host)
+        remote = gate.is_remote(host) and gate.fully_configured
         if not remote:
-            return jsonify({"email": None, "authRequired": False, "lan": True})
+            return jsonify({"email": None, "authRequired": False, "lan": lan})
         email = gate.current_user()
         if not email:
             return jsonify({"authRequired": True, "lan": False}), 401
