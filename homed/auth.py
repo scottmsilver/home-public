@@ -9,6 +9,7 @@ from flask import request
 
 SESSION_COOKIE = "home_session"
 STATE_COOKIE = "home_oauth_state"
+GRANT_COOKIE = "home_oauth_grant"
 HANDOFF_PARAM = "silver_oauth"
 SESSION_TTL = 30 * 86400
 GRANT_TTL = 600  # on-network self-approve ticket lifetime (seconds)

@@ -2,6 +2,7 @@ import pytest
 import requests
 
 from homed.aggregator import Aggregator
+from homed.auth import AuthGate
 from homed.model import Control
 from homed.server import create_app
 
@@ -49,6 +50,20 @@ def make_client(home_rows=None, web=None):
     agg.refresh_all()
     app = create_app(agg, home_rows=home_rows or [{"domain": "fans", "groups": ["fans"]}], web=web or {})
     return app.test_client(), adapter
+
+
+def make_auth_client(home_rows=None, web=None):
+    """Like make_client, but also returns the real AuthGate the app was built
+    with so tests can forge handoff tokens / inspect approval state. The gate is
+    created inside create_app and held on each auth view's closure, so pull it
+    off one of them."""
+    adapter = FakeAdapter()
+    agg = Aggregator({"fans": adapter})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=home_rows or [{"domain": "fans", "groups": ["fans"]}], web=web or {})
+    cells = app.view_functions["auth_me"].__closure__ or ()
+    gate = next(c.cell_contents for c in cells if isinstance(c.cell_contents, AuthGate))
+    return app.test_client(), adapter, gate
 
 
 class FakePoolAdapter:
@@ -438,6 +453,35 @@ def test_grant_start_lan_issues_ticket_remote_forbidden():
     # Remote host → refused (only on-network may self-approve)
     r2 = client.post("/api/auth/grant-start", headers={"Host": "home.example.com"})
     assert r2.status_code == 403
+
+
+def test_grant_login_callback_approves_unlisted_email():
+    import time
+
+    import jwt as _jwt
+
+    client, _, gate = make_auth_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": [], "broker_url": "https://b"}
+    )
+    # 1) LAN issues a grant ticket.
+    g = client.post("/api/auth/grant-start", headers={"Host": "192.168.1.15:8099"}).get_json()
+    ticket = g["ticket"]
+
+    # 2) Start login carrying the grant (remote host). Capture the state cookie.
+    #    (Flask 3.x test client: cookies via get_cookie(name, domain=...), keyed
+    #    on the request Host that set them.)
+    client.get(f"/api/auth/login?grant={ticket}", headers={"Host": "home.example.com"})
+    state = client.get_cookie("home_oauth_state", domain="home.example.com").value
+
+    # 3) Forge a valid broker handoff for an unlisted email, signed with the gate's handoff secret.
+    handoff = _jwt.encode(
+        {"email": "newuser@gmail.com", "exp": int(time.time()) + 60}, gate.handoff_secret, algorithm="HS256"
+    )
+    r = client.get(f"/api/auth/callback?state={state}&silver_oauth={handoff}", headers={"Host": "home.example.com"})
+    assert r.status_code == 302  # success → redirect to /
+    assert gate.email_allowed("newuser@gmail.com")  # approved via the grant
+    # A session cookie was set
+    assert client.get_cookie("home_session", domain="home.example.com") is not None
 
 
 def test_remote_request_without_cookie_blocked():
