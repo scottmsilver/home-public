@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urlparse
 from flask import Flask, Response, jsonify, make_response, redirect, request, send_from_directory
 from werkzeug.utils import safe_join
 
-from homed.auth import GRANT_COOKIE, HANDOFF_PARAM, PUBLIC_PATHS, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
+from homed.auth import GRANT_COOKIE, HANDOFF_PARAM, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -52,7 +52,12 @@ def create_app(aggregator, home_rows, web):
             return None  # LAN: open
         if not gate.fully_configured:
             return jsonify({"error": "remote auth not configured"}), 503
-        if request.path in PUBLIC_PATHS or request.path.startswith("/api/auth/"):
+        # The static SPA shell (index.html, /vendor/*, assets — anything not under
+        # /api/) is public so the page can always load and then redirect itself to
+        # sign-in via /api/auth/me. Without this, an expired remote session 401s
+        # the vendor JS and the page renders blank with no redirect. Secrets live
+        # behind /api/* (except the auth dance, which must stay reachable).
+        if not request.path.startswith("/api/") or request.path.startswith("/api/auth/"):
             return None
         if not gate.current_user():
             return jsonify({"error": "not signed in", "authRequired": True}), 401

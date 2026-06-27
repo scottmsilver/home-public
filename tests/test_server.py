@@ -628,3 +628,17 @@ def test_goodnight_one_domain_failing_does_not_block_others():
     assert body["domains"] == {"fans": "error", "pool": "ok"}
     assert body["ok"] is False  # any domain failing → ok:false
     assert pool.slept  # pool still ran despite fans raising
+
+
+def test_remote_static_shell_public_but_api_protected():
+    # Regression: an expired remote session must still load the SPA shell (so it
+    # can redirect to sign-in). The shell (/, /vendor/*) is public; /api/* data
+    # stays gated. Without this the vendor JS 401s and the page renders blank.
+    client, _ = make_client(
+        web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}
+    )
+    H = {"Host": "home.example.com"}
+    assert client.get("/", headers=H).status_code != 401
+    assert client.get("/vendor/react.production.min.js", headers=H).status_code != 401
+    assert client.get("/api/state", headers=H).status_code == 401
+    assert client.get("/api/home", headers=H).status_code == 401
