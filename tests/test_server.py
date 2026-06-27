@@ -453,6 +453,16 @@ def test_grant_start_lan_issues_ticket_remote_forbidden():
     # Remote host → refused (only on-network may self-approve)
     r2 = client.post("/api/auth/grant-start", headers={"Host": "home.example.com"})
     assert r2.status_code == 403
+    # DNS-rebinding sim: a non-remote but attacker-chosen NAMED Host must be
+    # refused (only IP-literals/localhost/allow-listed names are trusted-local).
+    r3 = client.post("/api/auth/grant-start", headers={"Host": "evil.com"})
+    assert r3.status_code == 403
+    # Cross-origin POST from a non-local Origin is refused even on a LAN Host.
+    r4 = client.post(
+        "/api/auth/grant-start",
+        headers={"Host": "192.168.1.15:8099", "Origin": "https://evil.com"},
+    )
+    assert r4.status_code == 403
 
 
 def test_grant_login_callback_approves_unlisted_email():

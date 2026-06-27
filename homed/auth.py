@@ -1,11 +1,16 @@
 # homed/auth.py
+import ipaddress
+import logging
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 
 import jwt
 from flask import request
+
+log = logging.getLogger(__name__)
 
 SESSION_COOKIE = "home_session"
 STATE_COOKIE = "home_oauth_state"
@@ -30,11 +35,22 @@ class AuthGate:
         self.remote_domain = (web_cfg.get("remote_domain") or "").strip().lower()
         self.broker_url = (web_cfg.get("broker_url") or "").rstrip("/")
         self.allowed = {e.strip().lower() for e in web_cfg.get("allowed_emails", []) if e.strip()}
+        # Named hosts (besides IP-literals / localhost, which are trusted intrinsically)
+        # that count as "on the local network" for self-approve — e.g. a LAN-only
+        # Caddy vhost like "home.i.oursilverfamily.com".
+        self.local_hosts = {h.strip().lower() for h in web_cfg.get("local_hosts", []) if h.strip()}
         self.state_dir = Path(state_dir or Path("~/.home").expanduser())
         self.handoff_secret = self._read("BROKER_HANDOFF_SECRET", ".broker_handoff")
         self.session_secret = self._session_secret()
         self.approved_path = self.state_dir / "approved_emails.json"
+        # Single-process assumption: _dynamic is loaded once and held in memory.
+        # A second worker process (e.g. gunicorn --workers 2) would not see the
+        # other's approvals until restart. The lock guards in-process races only.
+        self._lock = threading.Lock()
         self._dynamic = self._load_approved()
+        # In-memory single-use guard for grant tickets. Lost on restart, which is
+        # benign: a replayed ticket only re-approves an already-verified, already-
+        # approved email (approve_email is idempotent) within the 600s TTL.
         self._used_grant_jti = set()
 
     def _read(self, env, name):
@@ -80,6 +96,29 @@ class AuthGate:
         host = _host(host_header).lower()
         return host == self.remote_domain or host.endswith("." + self.remote_domain)
 
+    def is_trusted_local(self, host_header):
+        """True only for requests that genuinely originate on the LAN — the gate
+        for on-network self-approve.
+
+        NOT merely ``not is_remote``: that would trust any attacker-chosen Host,
+        including a DNS-rebinding page in a LAN browser. An IP-literal or
+        ``localhost`` Host cannot be forged by rebinding (a malicious page always
+        sends ITS OWN hostname, never a victim IP), so those are intrinsically
+        local; any other named host must be explicitly allow-listed.
+        """
+        if self.is_remote(host_header):
+            return False
+        h = _host(host_header).lower()
+        if not h:
+            return False
+        if h == "localhost" or h in self.local_hosts:
+            return True
+        try:
+            ipaddress.ip_address(h)
+            return True
+        except ValueError:
+            return False
+
     def _load_approved(self):
         import json
 
@@ -99,15 +138,20 @@ class AuthGate:
             tmp.write_text(json.dumps(sorted(self._dynamic)))
             tmp.chmod(0o600)
             os.replace(tmp, self.approved_path)  # atomic
-        except OSError:
-            pass
+        except OSError as e:
+            # Degrades invisibly (the user got in this session via the cookie),
+            # so make it diagnosable rather than silent.
+            log.warning("could not persist %s (%s): approval will not survive a session expiry", self.approved_path, e)
 
     def approve_email(self, email):
         e = (email or "").strip().lower()
-        if not e or e in self._dynamic:
+        if not e:
             return
-        self._dynamic.add(e)
-        self._persist_approved()
+        with self._lock:  # guards _dynamic against concurrent approve/persist
+            if e in self._dynamic:
+                return
+            self._dynamic.add(e)
+            self._persist_approved()
 
     def email_allowed(self, email):
         return bool(email) and email.lower() in (self.allowed | self._dynamic)
@@ -134,9 +178,14 @@ class AuthGate:
         if claims.get("typ") != "grant":
             return False
         jti = claims.get("jti")
-        if not jti or jti in self._used_grant_jti:
+        if not jti:
             return False
-        self._used_grant_jti.add(jti)
+        # Lock makes check-then-add atomic so a concurrent double-submit of the
+        # same ticket can't both pass the single-use check.
+        with self._lock:
+            if jti in self._used_grant_jti:
+                return False
+            self._used_grant_jti.add(jti)
         return True
 
     def verify_session(self, value):

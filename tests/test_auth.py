@@ -139,3 +139,24 @@ def test_current_user_rejects_validly_signed_but_disallowed_email(tmp_path):
     cookie = g.make_session("intruder@evil.com")
     with app.test_request_context("/", headers={"Cookie": f"home_session={cookie}"}):
         assert g.current_user() is None
+
+
+def test_is_trusted_local_blocks_rebinding(tmp_path):
+    g = _gate(tmp_path)  # remote_domain = home.example.com
+    assert g.is_trusted_local("192.168.1.15:8099") is True   # IP literal — unforgeable
+    assert g.is_trusted_local("10.182.70.9:8099") is True
+    assert g.is_trusted_local("localhost:8099") is True
+    assert g.is_trusted_local("home.example.com") is False    # remote
+    assert g.is_trusted_local("evil.com") is False            # rebinding page's own host
+    assert g.is_trusted_local("") is False
+
+
+def test_is_trusted_local_honors_configured_named_hosts(tmp_path):
+    from homed.auth import AuthGate
+
+    g = AuthGate(
+        {"remote_domain": "home.example.com", "local_hosts": ["home.i.example.com"]},
+        state_dir=tmp_path,
+    )
+    assert g.is_trusted_local("home.i.example.com") is True
+    assert g.is_trusted_local("other.example.com") is False
