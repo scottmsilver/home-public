@@ -154,7 +154,15 @@ class AuthGate:
             self._persist_approved()
 
     def email_allowed(self, email):
-        return bool(email) and email.lower() in (self.allowed | self._dynamic)
+        if not email:
+            return False
+        e = email.lower()
+        # self.allowed is immutable after init; _dynamic is mutated under the lock,
+        # so read it under the lock too (avoids "set changed size" under threading).
+        if e in self.allowed:
+            return True
+        with self._lock:
+            return e in self._dynamic
 
     def make_session(self, email):
         now = int(time.time())
