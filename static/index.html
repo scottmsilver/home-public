@@ -1300,6 +1300,54 @@ function GateHoldSheet({ control, command, mode, onClose }) {
   );
 }
 
+// ── Shared body-card presentation pieces ──────────────────────
+// These three presentational components are the single source of truth for the
+// big-temperature card layout shared by every card that shows a temperature +
+// segmented selector + tappable setpoint (the Home Spa card and the Pool-tab
+// Pool/Spa body cards). They render the EXACT same DOM/classes as before — the
+// markup was previously duplicated inline in SpaCard and BodyCard.
+
+// Big temperature readout: ".spa-temp-row" > ".spa-temp-val" (value + degree
+// mark), with an optional trailing node (e.g. a reliability age "just now").
+function TempReadout({ temp, trailing }) {
+  return (
+    <div className="spa-temp-row">
+      <span className="spa-temp-val">
+        {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
+      </span>
+      {trailing != null ? trailing : null}
+    </div>
+  );
+}
+
+// Segmented Off/Spa/Jets (or Off/Pool, etc.) pill row. `options` is a list of
+// [key, label]; `current` is the active key; `onSelect(key)` fires on tap.
+// `disabled` greys out every pill (used when the spa control is offline).
+function SpaSegSelect({ options, current, onSelect, disabled }) {
+  return (
+    <div className="spa-seg">
+      {options.map(([key, label]) => (
+        <button key={key} className={"spa-seg-btn" + (key === current ? " active" : "")}
+                disabled={disabled}
+                onClick={() => onSelect(key)}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+// Tappable setpoint bar: ".spa-set-row" > label + value (+ chevron). `onTap`
+// fires only when provided (the Home Spa card gates it on online state).
+function SetpointBar({ value, onTap }) {
+  return (
+    <div className="spa-set-row" onClick={onTap}>
+      <span className="spa-set-label">Setpoint</span>
+      <span className="spa-set-val">
+        {(value != null ? value : "--") + "°F"} <span className="spa-set-arrow">›</span>
+      </span>
+    </div>
+  );
+}
+
 // ── Spa setpoint bottom sheet ──────────────────────────────────
 // Big setpoint value with −/+ steppers (±1, clamped to range) and
 // Cancel / Set. "Set" sends {setpoint:n}; live value seeds it.
@@ -1372,31 +1420,18 @@ function SpaCard({ title, controls, command }) {
         <span className={"badge " + badge.tone}>{badge.text}</span>
       </div>
 
-      <div className="spa-temp-row">
-        <span className="spa-temp-val">
-          {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
-        </span>
-      </div>
+      <TempReadout temp={temp} />
       {eta ? <div className="spa-heat-info">{eta}</div> : null}
 
-      <div className="spa-seg">
-        {segOpts.map((opt) => {
-          const key = opt.toLowerCase();
-          return (
-            <button key={opt} className={"spa-seg-btn" + (key === mode ? " active" : "")}
-                    disabled={!spaOnline}
-                    onClick={() => command(spa, { state: key })}>{cap(key)}</button>
-          );
-        })}
-      </div>
+      <SpaSegSelect
+        options={segOpts.map((opt) => [opt.toLowerCase(), cap(opt.toLowerCase())])}
+        current={mode}
+        disabled={!spaOnline}
+        onSelect={(key) => command(spa, { state: key })} />
 
       {setpoint ? (
-        <div className="spa-set-row" onClick={() => setpoint.online && setSheet(true)}>
-          <span className="spa-set-label">Setpoint</span>
-          <span className="spa-set-val">
-            {spVal != null ? spVal + "°F" : "--°F"} <span className="spa-set-arrow">›</span>
-          </span>
-        </div>
+        <SetpointBar value={spVal}
+                     onTap={() => setpoint.online && setSheet(true)} />
       ) : null}
 
       {lights ? (
@@ -1616,23 +1651,14 @@ function BodyCard({ title, body, control, setpoint, onSet }) {
         <div className="card-title">{title}</div>
         <span className={"badge " + badge.tone}>{badge.text}</span>
       </div>
-      <div className="spa-temp-row">
-        <span className="spa-temp-val">
-          {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
-        </span>
-        {age ? <span className="card-status">{age}</span> : null}
-      </div>
+      <TempReadout temp={temp}
+                   trailing={age ? <span className="card-status">{age}</span> : null} />
       {etaText ? <div className="spa-heat-info">{etaText}</div> : null}
       {pct > 0 ? (
         <div className="heat-progress"><div className="heat-progress-bar" style={{ width: pct + "%" }} /></div>
       ) : null}
       {control}
-      <div className="spa-set-row" onClick={() => setSheet(true)}>
-        <span className="spa-set-label">Setpoint</span>
-        <span className="spa-set-val">
-          {(body.setpoint != null ? body.setpoint : "--") + "°F"} <span className="spa-set-arrow">›</span>
-        </span>
-      </div>
+      <SetpointBar value={body.setpoint} onTap={() => setSheet(true)} />
       {sheet ? (
         <PoolSetpointSheet title={title + " Temperature"} value={body.setpoint}
                            onSet={onSet} onClose={() => setSheet(false)} />
@@ -1647,12 +1673,8 @@ function SpaSeg({ spa, command }) {
   const cur = spa && spa.on ? (jets ? "jets" : "spa") : "off";
   const opts = [["off", "Off"], ["spa", "Spa"], ["jets", "Jets"]];
   return (
-    <div className="spa-seg">
-      {opts.map(([key, label]) => (
-        <button key={key} className={"spa-seg-btn" + (key === cur ? " active" : "")}
-                onClick={() => command("pool", "spa", { state: key })}>{label}</button>
-      ))}
-    </div>
+    <SpaSegSelect options={opts} current={cur}
+                  onSelect={(key) => command("pool", "spa", { state: key })} />
   );
 }
 
@@ -1661,12 +1683,8 @@ function PoolSeg({ pool, command }) {
   const cur = pool && pool.on ? "pool" : "off";
   const opts = [["off", "Off"], ["pool", "Pool"]];
   return (
-    <div className="spa-seg">
-      {opts.map(([key, label]) => (
-        <button key={key} className={"spa-seg-btn" + (key === cur ? " active" : "")}
-                onClick={() => command("pool", "pool", { on: key === "pool" })}>{label}</button>
-      ))}
-    </div>
+    <SpaSegSelect options={opts} current={cur}
+                  onSelect={(key) => command("pool", "pool", { on: key === "pool" })} />
   );
 }
 
