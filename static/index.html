@@ -550,6 +550,9 @@ input[type=range]::-moz-range-thumb {
 
 /* ── pentair-faithful Spa card ──────────── */
 .spa-temp-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; justify-content: flex-end; flex-wrap: wrap; }
+/* setpoint + big temp stay together (setpoint always left of temp) even when the
+   row wraps at narrow widths; only the trailing age may wrap to its own line. */
+.spa-temp-main { display: inline-flex; align-items: baseline; gap: 12px; min-width: 0; }
 .spa-temp-val {
   font-size: 52px; font-weight: 700; color: var(--label);
   letter-spacing: -2px; line-height: 1.1;
@@ -1312,9 +1315,11 @@ function TempReadout({ temp, trailing, setpoint }) {
   return (
     <div className="spa-temp-row">
       {trailing != null ? trailing : null}
-      {setpoint != null ? setpoint : null}
-      <span className="spa-temp-val">
-        {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
+      <span className="spa-temp-main">
+        {setpoint != null ? setpoint : null}
+        <span className="spa-temp-val">
+          {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
+        </span>
       </span>
     </div>
   );
