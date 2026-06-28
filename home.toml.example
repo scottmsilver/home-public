@@ -9,6 +9,10 @@ base_url = "http://127.0.0.1:8080"
 [backends.fans]
 base_url = "http://127.0.0.1:8095"
 
+# Optional: WiiM multiroom audio via the wiimd daemon. Omit to disable the Music tab.
+[backends.music]
+base_url = "http://127.0.0.1:8096"
+
 [web]
 bind           = "0.0.0.0:8099"
 remote_domain  = ""                    # e.g. "home.i.oursilverfamily.com"; empty = LAN-only
