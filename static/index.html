@@ -2472,7 +2472,7 @@ function MusicTab({ streamTick }) {
     apiFetch("/api/raw/music/cmd", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "/api/music/" + encodeURIComponent(id) + "/cmd", body: { action: "vol", vol } }),
+      body: JSON.stringify({ path: "/api/music/" + encodeURIComponent(id) + "/cmd", body: { vol } }),
     }).then(() => setTimeout(load, 300)).catch(() => {});
   }, [load]);
 
