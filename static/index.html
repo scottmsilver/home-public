@@ -81,19 +81,24 @@ body {
 
 /* ── Large-title header ─────────────────── */
 .hdr {
-  display: flex; justify-content: space-between; align-items: flex-end;
-  padding: calc(22px + env(safe-area-inset-top)) 4px 16px;
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 8px;
+  padding: calc(22px + env(safe-area-inset-top)) 4px 16px; min-width: 0;
 }
 .hdr-title {
   font-size: 34px; font-weight: 700; letter-spacing: 0.3px;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
 }
-.hdr-right { display: flex; align-items: center; gap: 12px; padding-bottom: 5px; }
+.hdr-right { display: flex; align-items: center; gap: 10px; padding-bottom: 5px; flex-shrink: 0; }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: background .2s; }
 .conn-dot.off { background: #ef4444; }
 
-/* iOS segmented control */
-.seg { display: inline-flex; background: var(--fill); border-radius: 11px; padding: 2px; }
+/* iOS segmented control — shrinks (and scrolls if truly tight) so the header
+   never forces page overflow, even on LAN where the extra key button shows. */
+.seg {
+  display: flex; background: var(--fill); border-radius: 11px; padding: 2px;
+  min-width: 0; overflow-x: auto; scrollbar-width: none;
+}
+.seg::-webkit-scrollbar { display: none; }
 .seg button {
   padding: 7px 16px; border: none; background: transparent;
   color: var(--label2); font-size: 14px; font-weight: 600;
@@ -116,6 +121,12 @@ body {
 }
 .card-title { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.2px; }
 .card-status { font-size: var(--fs-sub); color: var(--label2); font-variant-numeric: tabular-nums; }
+/* Patio grouped cards: a divider between the group control and the per-device
+   list, and each embedded device gets its own (smaller) name + spacing. */
+.patio-divider { height: 1px; background: var(--card-border); margin: 16px 2px 2px; }
+.patio-device { margin-top: 14px; min-width: 0; }
+.patio-device .card-title-row { margin-bottom: 8px; min-height: 0; }
+.patio-device .card-title { font-size: var(--fs-name); color: var(--label2); font-weight: 600; }
 
 /* section-card status badge pill (pentair-style) */
 .badge {
@@ -2001,14 +2012,15 @@ function BreezeMenu({ current, anchor, onPick, onClose }) {
 
 // One fan card: header (name + sleep chip / unreachable), fan row (icon toggle
 // + speed pills 1–6 + breeze), light row (icon toggle + brightness slider).
-function FanCard({ fan, deadline, cmd, onBreeze }) {
+function FanCard({ fan, deadline, cmd, onBreeze, embedded }) {
   const st = fan.state || {};
   const fanOn = !!st.fanOn;
   const lightOn = !!st.lightOn;
   const lightLevel = st.lightBrightness ?? 0;
   const won = !!st.wind, ws = st.windSpeed || 0;
   return (
-    <div className={"card" + (fan.online ? "" : " offline")} style={fan.online ? null : { opacity: .45 }}>
+    <div className={(embedded ? "patio-device" : "card") + (fan.online ? "" : " offline")}
+         style={fan.online ? null : { opacity: .45 }}>
       <div className="card-title-row">
         <div className="card-title">{fan.name}</div>
         {!fan.online ? <span className="card-status">Unreachable</span>
@@ -2054,12 +2066,13 @@ function FanCard({ fan, deadline, cmd, onBreeze }) {
 }
 
 // One heater card: header + a single intensity slider (Leviton dimmer style).
-function HeaterCard({ heater, deadline, cmd }) {
+function HeaterCard({ heater, deadline, cmd, embedded }) {
   const st = heater.state || {};
   const level = st.level ?? 0;
   const on = !!st.on && level > 0;
   return (
-    <div className={"card" + (heater.online ? "" : " offline")} style={heater.online ? null : { opacity: .45 }}>
+    <div className={(embedded ? "patio-device" : "card") + (heater.online ? "" : " offline")}
+         style={heater.online ? null : { opacity: .45 }}>
       <div className="card-title-row">
         <div className="card-title">{heater.name}</div>
         {!heater.online ? <span className="card-status">Unreachable</span>
@@ -2174,8 +2187,9 @@ function PatioTab({ streamTick }) {
 
   return (
     <React.Fragment>
-      {/* ── Combo controls (All Fans / All Lights / All Heaters) ── */}
+      {/* ── Card 1: Fans & Lights (group controls + each fan) ── */}
       <div className="card">
+        <div className="card-title-row"><div className="card-title">Fans &amp; Lights</div></div>
         {/* All Fans */}
         <div className={"ctl" + (fansOnAny ? " on" : "")} style={{ "--c": "var(--cyan)" }}>
           <button className="ctl-icon" aria-label={"all fans " + (fansOnAny ? "on" : "off")}
@@ -2213,8 +2227,19 @@ function PatioTab({ streamTick }) {
           {rowStat(fans, (f) => f.state.lightOn, (f) => f.online, (f) => f.state.lightBrightness, (v) => v + "%")}
         </div>
 
-        {/* All Heaters */}
-        {heaters.length ? (
+        {/* Each fan */}
+        {fans.length ? <div className="patio-divider" /> : null}
+        {fans.map((f) => (
+          <FanCard key={f.id} embedded fan={f} deadline={deadlineFor(f)}
+                   cmd={(body) => fanCmd(f.id, body)} onBreeze={(id, cur, a) => setBreeze({ id, current: cur, anchor: a })} />
+        ))}
+      </div>
+
+      {/* ── Card 2: Heaters (group control + each heater) ── */}
+      {heaters.length ? (
+        <div className="card">
+          <div className="card-title-row"><div className="card-title">Heaters</div></div>
+          {/* All Heaters */}
           <div className={"ctl" + (heatersOnAny ? " on" : "")} style={{ "--c": "var(--orange)" }}>
             <button className="ctl-icon" aria-label={"all heaters " + (heatersOnAny ? "on" : "off")}
                     onClick={() => allHeaters({ power: !heatersOnAny })}>{HEAT_SVG}</button>
@@ -2226,19 +2251,14 @@ function PatioTab({ streamTick }) {
             ) : <div className="ctl-spacer" />}
             {rowStat(heaters, (h) => h.state.on && (h.state.level ?? 0) > 0, (h) => h.online, (h) => h.state.level, (v) => v + "%")}
           </div>
-        ) : null}
-      </div>
 
-      {/* ── Per-fan cards ── */}
-      {fans.map((f) => (
-        <FanCard key={f.id} fan={f} deadline={deadlineFor(f)}
-                 cmd={(body) => fanCmd(f.id, body)} onBreeze={(id, cur, a) => setBreeze({ id, current: cur, anchor: a })} />
-      ))}
-
-      {/* ── Per-heater cards ── */}
-      {heaters.map((h) => (
-        <HeaterCard key={h.id} heater={h} deadline={deadlineFor(h)} cmd={(body) => heaterCmd(h.id, body)} />
-      ))}
+          {/* Each heater */}
+          <div className="patio-divider" />
+          {heaters.map((h) => (
+            <HeaterCard key={h.id} embedded heater={h} deadline={deadlineFor(h)} cmd={(body) => heaterCmd(h.id, body)} />
+          ))}
+        </div>
+      ) : null}
 
       {/* ── Sleep timer + Goodnight ── */}
       <div className="card">
@@ -2285,6 +2305,15 @@ const TABS = [
   { id: "pool", label: "Pool" },
   { id: "fans", label: "Patio" },
 ];
+
+// Path ↔ tab so home.oursilverfamily.com/gate|pool|patio deep-links to a tab
+// (the retired gate./pool./patio. hosts redirect here by path). Patio = "fans".
+const PATH_TO_TAB = { gate: "gate", pool: "pool", patio: "fans", home: "home" };
+const TAB_TO_PATH = { gate: "/gate", pool: "/pool", fans: "/patio", home: "/" };
+function tabFromPath() {
+  const seg = (window.location.pathname.split("/")[1] || "").toLowerCase();
+  return PATH_TO_TAB[seg] || "home";
+}
 
 // Pure prediction of the partial control fields a payload SHOULD produce,
 // keyed by control.kind. Returns {} when there's nothing persistent to predict
@@ -2345,7 +2374,18 @@ function matchesPrediction(control, fields) {
 function App() {
   const [state, setState] = useState({ controls: [] });
   const [sections, setSections] = useState([]);    // [{title, ids:[{domain,id}], snapshot:{key->control}}]
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState(tabFromPath);
+  // Deep-link: reflect the active tab in the URL path and follow back/forward.
+  const selectTab = useCallback((id) => {
+    setTab(id);
+    const path = TAB_TO_PATH[id] || "/";
+    if (window.location.pathname !== path) window.history.pushState({}, "", path);
+  }, []);
+  useEffect(() => {
+    const onPop = () => setTab(tabFromPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [connected, setConnected] = useState(false);
   // Bumped on each SSE frame so the faithful Pool tab can re-fetch /api/raw/pool.
   const [streamTick, setStreamTick] = useState(0);
@@ -2611,7 +2651,7 @@ function App() {
         <div className="seg">
           {TABS.map((t) => (
             <button key={t.id} className={t.id === tab ? "active" : ""}
-                    onClick={() => setTab(t.id)}>{t.label}</button>
+                    onClick={() => selectTab(t.id)}>{t.label}</button>
           ))}
         </div>
         <div className="hdr-right">
