@@ -43,6 +43,23 @@
   --green: #2dd4bf;  /* ok/active states → teal */
   --indigo: #38bdf8;
   --red: #ef4444;
+  /* ── Semantic STATE tokens — single source for status visuals ─────
+     secure  = closed/locked/ok       attention = open/unlocked/held/heating
+     active  = on/running             neutral   = off/offline
+     Both CSS rules and JS-derived inline colors reference these, so Home
+     and every per-domain tab share one visual language and can't drift. */
+  --state-secure: #34d399;
+  --state-secure-bg: rgba(52,211,153,.16);
+  --state-secure-ring: rgba(52,211,153,.35);
+  --state-attention: var(--warm);
+  --state-attention-bg: rgba(249,115,22,.18);
+  --state-attention-ring: rgba(249,115,22,.35);
+  --state-active: var(--accent);
+  --state-active-bg: rgba(56,189,248,.18);
+  --state-active-ring: rgba(56,189,248,.40);
+  --state-neutral: var(--text-dim);
+  --state-neutral-bg: rgba(255,255,255,.08);
+  --state-neutral-ring: rgba(255,255,255,.08);
   /* unified circular-control diameter (icon buttons, expander, swatches) */
   --circle: 44px;
   /* type scale, applied by role */
@@ -107,10 +124,10 @@ body {
   background: rgba(255,255,255,.08); color: var(--text-dim);
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.badge.green  { background: rgba(45,212,191,.18); color: var(--teal); }
-.badge.teal   { background: rgba(56,189,248,.18); color: var(--accent); }
-.badge.orange { background: rgba(249,115,22,.18); color: var(--warm); }
-.badge.gray   { background: rgba(255,255,255,.08); color: var(--text-dim); }
+.badge.green  { background: var(--state-secure-bg);    color: var(--state-secure); }
+.badge.teal   { background: var(--state-active-bg);    color: var(--state-active); }
+.badge.orange { background: var(--state-attention-bg); color: var(--state-attention); }
+.badge.gray   { background: var(--state-neutral-bg);   color: var(--state-neutral); }
 
 /* group divider label inside the unified Home card */
 .group-label {
@@ -407,17 +424,17 @@ input[type=range]::-moz-range-thumb {
 .gate-door-icon {
   width: 48px; height: 48px; flex-shrink: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(248,113,113,.16); color: #f87171;
-  box-shadow: inset 0 0 0 1px rgba(248,113,113,.3);
+  background: var(--state-secure-bg); color: var(--state-secure);
+  box-shadow: inset 0 0 0 1px var(--state-secure-ring);
   transition: background .3s ease-out, color .3s ease-out, box-shadow .3s ease-out;
 }
 .gate-door-icon.open {
-  background: rgba(45,212,191,.18); color: var(--teal);
-  box-shadow: inset 0 0 0 1px rgba(45,212,191,.4);
+  background: var(--state-attention-bg); color: var(--state-attention);
+  box-shadow: inset 0 0 0 1px var(--state-attention-ring);
 }
 .gate-door-icon.offline {
-  background: rgba(255,255,255,.06); color: var(--label3);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  background: var(--state-neutral-bg); color: var(--state-neutral);
+  box-shadow: inset 0 0 0 1px var(--state-neutral-ring);
 }
 .gate-door-icon svg { width: 24px; height: 24px; display: block; }
 .gate-door-meta { min-width: 0; flex: 1; }
@@ -427,10 +444,10 @@ input[type=range]::-moz-range-thumb {
 }
 .gate-door-status {
   font-size: var(--fs-sub); font-weight: 500; margin-top: 2px;
-  color: #f87171;
+  color: var(--state-secure);   /* closed = secure (matches Home) */
 }
-.gate-door-status.open { color: var(--teal); }
-.gate-door-status.offline { color: var(--label2); }
+.gate-door-status.open { color: var(--state-attention); }
+.gate-door-status.offline { color: var(--state-neutral); }
 .gate-door-status .link {
   cursor: pointer; text-decoration: underline; text-decoration-style: dotted;
   text-underline-offset: 2px;
@@ -643,7 +660,11 @@ function iconFor(c) {
     "pool:yard_light": { i: SUN_SVG, c: "var(--amber)" },
   };
   if (map[key]) return map[key];
-  if (c.domain === "gate") return { i: c.status === "Locked" ? LOCK_SVG : UNLOCK_SVG, c: "var(--green)" };
+  if (c.domain === "gate") {
+    // Same canonical locked/open the Gate tab uses; color via shared state tokens.
+    const open = c.status ? !/closed/i.test(c.status) : !!c.on;
+    return { i: open ? UNLOCK_SVG : LOCK_SVG, c: open ? "var(--state-attention)" : "var(--state-secure)" };
+  }
   if (c.domain === "fans") return { i: FAN_SVG, c: "var(--cyan)" };
   return { i: BULB_SVG, c: "var(--amber)" };
 }
