@@ -549,7 +549,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* ── pentair-faithful Spa card ──────────── */
-.spa-temp-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; justify-content: flex-end; flex-wrap: wrap; }
+.spa-temp-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
 .spa-temp-val {
   font-size: 52px; font-weight: 700; color: var(--label);
   letter-spacing: -2px; line-height: 1.1;
@@ -561,7 +561,7 @@ input[type=range]::-moz-range-thumb {
   margin-top: 4px; margin-bottom: 2px;
 }
 /* segmented Off / Spa / Jets pills */
-.spa-seg { display: flex; gap: 8px; margin-top: 12px; margin-bottom: 4px; justify-content: flex-end; flex-wrap: wrap; }
+.spa-seg { display: flex; gap: 8px; margin-top: 12px; margin-bottom: 4px; }
 .spa-seg-btn {
   min-width: 0; padding: 9px 16px; border-radius: 12px;
   background: rgba(255,255,255,.06);
@@ -578,21 +578,22 @@ input[type=range]::-moz-range-thumb {
   color: var(--teal);
 }
 .spa-seg-btn[disabled] { opacity: .5; cursor: default; }
-.spa-set-arrow { color: var(--label2); font-size: 14px; }
-/* inline setpoint chip sitting to the LEFT of the big temp on the temp row */
-.spa-set-inline {
-  display: inline-flex; align-items: center; gap: 4px;
+/* tappable setpoint bar */
+.spa-set-row {
+  display: flex; justify-content: space-between; align-items: center;
   background: rgba(255,255,255,.05);
   border: 1px solid rgba(255,255,255,.06);
-  border-radius: 12px; padding: 6px 10px;
+  border-radius: 12px; padding: 12px 16px; margin-top: 12px;
   cursor: pointer; transition: background .2s;
 }
-.spa-set-inline:active { background: rgba(255,255,255,.08); }
-.spa-set-inline-label { font-size: 12px; color: var(--label2); }
-.spa-set-inline-val {
+.spa-set-row:active { background: rgba(255,255,255,.08); }
+.spa-set-label { font-size: 15px; color: var(--label2); }
+.spa-set-val {
+  display: flex; align-items: center; gap: 6px;
   font-size: 15px; font-weight: 600; color: var(--label);
   font-variant-numeric: tabular-nums;
 }
+.spa-set-arrow { color: var(--label2); font-size: 14px; }
 /* spa setpoint bottom sheet stepper */
 .spa-sheet-val { font-size: 68px; font-weight: 700; color: var(--label); letter-spacing: -3px; line-height: 1; }
 .spa-sheet-deg { font-size: 26px; color: var(--label2); font-weight: 400; }
@@ -1308,27 +1309,13 @@ function GateHoldSheet({ control, command, mode, onClose }) {
 
 // Big temperature readout: ".spa-temp-row" > ".spa-temp-val" (value + degree
 // mark), with an optional trailing node (e.g. a reliability age "just now").
-function TempReadout({ temp, trailing, setpoint }) {
+function TempReadout({ temp, trailing }) {
   return (
     <div className="spa-temp-row">
-      {trailing != null ? trailing : null}
-      {setpoint != null ? setpoint : null}
       <span className="spa-temp-val">
         {temp != null ? temp : "--"}<span className="spa-temp-deg">°</span>
       </span>
-    </div>
-  );
-}
-
-// Inline tappable setpoint chip, placed to the LEFT of the big temp on the
-// temp row. Replaces the old full-width SetpointBar. `onTap` fires only when
-// provided (callers gate it on online state).
-function SetpointInline({ value, onTap }) {
-  return (
-    <div className="spa-set-inline" onClick={onTap}>
-      <span className="spa-set-inline-label">Set</span>
-      <span className="spa-set-inline-val">{(value != null ? value : "--") + "°F"}</span>
-      <span className="spa-set-arrow">›</span>
+      {trailing != null ? trailing : null}
     </div>
   );
 }
@@ -1344,6 +1331,19 @@ function SpaSegSelect({ options, current, onSelect, disabled }) {
                 disabled={disabled}
                 onClick={() => onSelect(key)}>{label}</button>
       ))}
+    </div>
+  );
+}
+
+// Tappable setpoint bar: ".spa-set-row" > label + value (+ chevron). `onTap`
+// fires only when provided (the Home Spa card gates it on online state).
+function SetpointBar({ value, onTap }) {
+  return (
+    <div className="spa-set-row" onClick={onTap}>
+      <span className="spa-set-label">Setpoint</span>
+      <span className="spa-set-val">
+        {(value != null ? value : "--") + "°F"} <span className="spa-set-arrow">›</span>
+      </span>
     </div>
   );
 }
@@ -1420,11 +1420,7 @@ function SpaCard({ title, controls, command }) {
         <span className={"badge " + badge.tone}>{badge.text}</span>
       </div>
 
-      <TempReadout temp={temp}
-                   setpoint={setpoint ? (
-                     <SetpointInline value={spVal}
-                                     onTap={() => setpoint.online && setSheet(true)} />
-                   ) : null} />
+      <TempReadout temp={temp} />
       {eta ? <div className="spa-heat-info">{eta}</div> : null}
 
       <SpaSegSelect
@@ -1432,6 +1428,11 @@ function SpaCard({ title, controls, command }) {
         current={mode}
         disabled={!spaOnline}
         onSelect={(key) => command(spa, { state: key })} />
+
+      {setpoint ? (
+        <SetpointBar value={spVal}
+                     onTap={() => setpoint.online && setSheet(true)} />
+      ) : null}
 
       {lights ? (
         <ModesRow control={lights} command={command} bare />
@@ -1651,13 +1652,13 @@ function BodyCard({ title, body, control, setpoint, onSet }) {
         <span className={"badge " + badge.tone}>{badge.text}</span>
       </div>
       <TempReadout temp={temp}
-                   trailing={age ? <span className="card-status">{age}</span> : null}
-                   setpoint={<SetpointInline value={body.setpoint} onTap={() => setSheet(true)} />} />
+                   trailing={age ? <span className="card-status">{age}</span> : null} />
       {etaText ? <div className="spa-heat-info">{etaText}</div> : null}
       {pct > 0 ? (
         <div className="heat-progress"><div className="heat-progress-bar" style={{ width: pct + "%" }} /></div>
       ) : null}
       {control}
+      <SetpointBar value={body.setpoint} onTap={() => setSheet(true)} />
       {sheet ? (
         <PoolSetpointSheet title={title + " Temperature"} value={body.setpoint}
                            onSet={onSet} onClose={() => setSheet(false)} />
