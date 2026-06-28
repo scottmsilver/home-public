@@ -5,6 +5,7 @@ from pathlib import Path
 
 from homed.adapters.fans import FansAdapter
 from homed.adapters.gate import GateAdapter
+from homed.adapters.music import MusicAdapter
 from homed.adapters.pool import PoolAdapter
 from homed.aggregator import Aggregator
 from homed.config import load_config
@@ -20,6 +21,10 @@ def build(cfg):
             b["gate"]["base_url"], headers={"X-Verified-User": b["gate"].get("service_user", "home@local")}
         ),
     }
+    # Music (wiimd) is optional: only register it when configured, so existing
+    # deploys without a [backends.music] section keep working unchanged.
+    if b.get("music", {}).get("base_url"):
+        adapters["music"] = MusicAdapter(b["music"]["base_url"])
     agg = Aggregator(adapters)
     agg.refresh_all()
     agg.start()
