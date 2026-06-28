@@ -335,6 +335,130 @@ def test_raw_fans_no_backend_returns_404():
     assert client.post("/api/raw/fans/cmd", json={"path": "/api/all", "body": {}}).status_code == 404
 
 
+class FakeMusicAdapter:
+    domain = "music"
+
+    def __init__(self, raw=None):
+        self._raw = (
+            raw
+            if raw is not None
+            else {
+                "players": [
+                    {
+                        "id": "p1",
+                        "name": "Kitchen",
+                        "rooms": ["Kitchen"],
+                        "leader_ip": "192.168.1.50",
+                        "online": True,
+                        "status": "play",
+                        "title": "Song",
+                        "artist": "Artist",
+                        "album": "Album",
+                        "art": None,
+                        "curpos_ms": 0,
+                        "totlen_ms": 0,
+                        "vol": 30,
+                        "mute": False,
+                        "source": "network",
+                    }
+                ]
+            }
+        )
+        self.raw_commands = []
+
+    def snapshot(self):
+        return [Control("music", "music", "Music", "readout", on=True)]
+
+    def command(self, cid, payload):
+        pass
+
+    def raw(self):
+        return self._raw
+
+    def raw_command(self, path, body=None):
+        # Delegate to the real adapter validation so the endpoint test exercises
+        # the actual path-boundary checks rather than a duplicate.
+        from homed.adapters.music import MusicAdapter
+
+        MusicAdapter._validate_raw_path(path)
+        self.raw_commands.append((path, body or {}))
+        return {"ok": True}
+
+    def start(self, on_change):
+        pass
+
+
+def make_music_client(raw=None):
+    adapter = FakeMusicAdapter(raw=raw)
+    agg = Aggregator({"music": adapter})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    return app.test_client(), adapter
+
+
+def test_raw_music_returns_backend_state():
+    sample = {
+        "players": [
+            {
+                "id": "leader-uuid",
+                "name": "Whole House",
+                "rooms": ["Kitchen", "Living Room"],
+                "leader_ip": "192.168.1.50",
+                "online": True,
+                "status": "play",
+                "title": "Track",
+                "artist": "Band",
+                "album": "Record",
+                "art": "http://art",
+                "curpos_ms": 1000,
+                "totlen_ms": 200000,
+                "vol": 42,
+                "mute": False,
+                "source": "cast",
+            }
+        ]
+    }
+    client, _ = make_music_client(raw=sample)
+    r = client.get("/api/raw/music")
+    assert r.status_code == 200
+    assert r.get_json() == sample
+
+
+def test_raw_music_cmd_passes_through():
+    client, adapter = make_music_client()
+    r = client.post("/api/raw/music/cmd", json={"path": "/api/music/p1/cmd", "body": {"action": "toggle"}})
+    assert r.status_code == 200
+    assert r.get_json() == {"ok": True}
+    assert adapter.raw_commands == [("/api/music/p1/cmd", {"action": "toggle"})]
+
+
+def test_raw_music_cmd_rejects_bad_path():
+    client, adapter = make_music_client()
+    for bad in ("/evil", "http://evil/api/x", "/api/../admin", "/api//x"):
+        r = client.post("/api/raw/music/cmd", json={"path": bad, "body": {}})
+        assert r.status_code == 400, bad
+    assert adapter.raw_commands == []
+
+
+def test_raw_music_cmd_non_object_body_is_safe():
+    # A non-dict JSON body (list/string/null) must not 500; it maps to an empty
+    # request → missing path → 400 from validation.
+    client, adapter = make_music_client()
+    for bad_body in ([], "x", 5):
+        r = client.post("/api/raw/music/cmd", json=bad_body)
+        assert r.status_code == 400, bad_body
+    assert adapter.raw_commands == []
+
+
+def test_raw_music_no_backend_returns_404():
+    agg = Aggregator({"pool": FakePoolAdapter()})
+    agg.refresh_all()
+    app = create_app(agg, home_rows=[], web={})
+    client = app.test_client()
+    assert client.get("/api/raw/music").status_code == 404
+    assert client.post("/api/raw/music/cmd", json={"path": "/api/goodnight", "body": {}}).status_code == 404
+
+
 def make_client_with_failing_adapter():
     agg = Aggregator({"gate": FailingAdapter()})
     agg.refresh_all()
