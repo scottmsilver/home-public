@@ -1685,9 +1685,13 @@ function GateDoor({ door, onCommand }) {
 
   const holdState = door.hold_state || null;  // "hold_today" | "hold_forever" | null
   const isHeld = !!door.is_held;
-  const statusStr = (door.status || "").toLowerCase();
-  const isUnlocked = statusStr.includes("unlock") || statusStr === "open";
-  const isOpen = isHeld || isUnlocked;
+  // Canonical locked/open comes from the adapter (lock_state-based), NOT the
+  // flattened door.status — a locked gate can be physically swung "open" while
+  // its lock is engaged, which must still read Closed (matches the Home tab).
+  const derived = door.derived || {};
+  const isOpen = derived.open !== undefined
+    ? derived.open
+    : (isHeld || (door.status || "").toLowerCase().includes("unlock"));
   const online = door.is_online !== false;
 
   const expiryDisplay = (() => {
@@ -1736,7 +1740,7 @@ function GateDoor({ door, onCommand }) {
       statusNode = "Open";
     }
   } else {
-    statusNode = "Locked";
+    statusNode = derived.label || "Closed";
   }
 
   const untilLabel = holdState === "hold_today" && expiryDisplay

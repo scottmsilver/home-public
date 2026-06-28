@@ -9,24 +9,45 @@ from homed.adapters.base import Adapter
 from homed.model import Control
 
 
-def _door_view(d):
+def _door_state(d):
+    """Canonical derived door state — the single source of truth both the
+    normalized snapshot (Home tab) and the raw passthrough (Gate tab) consume,
+    so the two can never disagree on locked/open.
+
+    ``open`` means UNLOCKED (or held open). It is derived from ``lock_state``,
+    NOT the physical ``door_position``/``status`` — a locked gate can be swung
+    physically "open" while its lock is engaged, which must still read Closed.
+    """
     hs = d.get("hold_state")
+    held = bool(d.get("is_held")) or hs in ("hold_forever", "hold_today")
+    ls = d.get("lock_state")
+    if ls == "lock":
+        open_ = False
+    elif ls == "unlock":
+        open_ = True
+    else:
+        # Older daemons / synthetic aggregate have no lock_state: fall back to the
+        # flattened status field.
+        open_ = d.get("status") in ("unlocked", "open")
+    open_ = open_ or held
+
     if hs == "hold_forever":
-        return "forever", "Held open"
-    if hs == "hold_today":
+        mode, label = "forever", "Held open"
+    elif hs == "hold_today":
         exp = d.get("expires_at")
         if exp:
             t = time.strftime("%-I:%M %p", time.localtime(exp))
-            return "timed", f"Held until {t}"
-        return "timed", "Held (timed)"
-    if d.get("lock_state") == "lock":
-        return None, "Closed"
-    if d.get("lock_state") == "unlock":
-        return None, "Open"
-    # Older daemons / synthetic aggregate have no lock_state: fall back to the
-    # flattened position-based status.
-    lock = {"locked": "Locked", "unlocked": "Unlocked", "open": "Open"}.get(d.get("status"), "Unknown")
-    return None, lock
+            mode, label = "timed", f"Held until {t}"
+        else:
+            mode, label = "timed", "Held (timed)"
+    else:
+        mode, label = None, ("Open" if open_ else "Closed")
+    return {"open": open_, "held": held, "mode": mode, "label": label}
+
+
+def _door_view(d):
+    s = _door_state(d)
+    return s["mode"], s["label"]
 
 
 class GateAdapter(Adapter):
@@ -38,8 +59,16 @@ class GateAdapter(Adapter):
         Used by the faithful unifi-gate-style Gate tab, which renders the door
         cards directly rather than the home-normalized Controls. Carries the
         same injected X-Verified-User header used by every other request.
+
+        Each door is enriched with a ``derived`` object (the same canonical
+        locked/open/label/mode the Home tab uses) so the Gate tab consumes one
+        source of truth instead of re-deriving status from raw fields.
         """
-        return self.get_json("/devices")
+        doors = self.get_json("/devices")
+        for d in doors:
+            if isinstance(d, dict):
+                d["derived"] = _door_state(d)
+        return doors
 
     def door_image(self, door_id):
         """Fetch a door's snapshot/cover image from unifi-gate.
