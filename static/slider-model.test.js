@@ -50,6 +50,32 @@ test("dragging never emits a command on its own", () => {
   assert.deepStrictEqual(commands, []);
 });
 
+test("livecommit emits a command but stays dragging (live-follow)", () => {
+  const r = M.reduce(M.initial(8), { type: "livecommit", v: 20 });
+  assert.strictEqual(r.command, 20);
+  assert.strictEqual(r.state.value, 20);
+  assert.strictEqual(r.state.dragging, true);   // still dragging
+  assert.strictEqual(r.state.pending, 20);
+});
+
+test("server is ignored during a live drag (livecommit keeps dragging)", () => {
+  let s = M.initial(8);
+  s = M.reduce(s, { type: "livecommit", v: 20 }).state;
+  s = M.reduce(s, { type: "server", v: 8 }).state;  // stale reading mid-drag
+  assert.strictEqual(s.value, 20);                  // thumb not yanked
+});
+
+test("live drag then release: each livecommit + the release emit; ends at release", () => {
+  const { state, commands } = run([
+    { type: "livecommit", v: 12 }, { type: "drag", v: 15 },
+    { type: "livecommit", v: 18 }, { type: "drag", v: 22 },
+    { type: "release", v: 25 },
+  ], 8);
+  assert.deepStrictEqual(commands, [12, 18, 25]);   // throttled live updates + final
+  assert.strictEqual(state.dragging, false);
+  assert.strictEqual(state.pending, 25);
+});
+
 // --- reconciliation: snap-back protection ------------------------------------
 
 test("stale reading after release is ignored (no snap-back)", () => {

@@ -899,7 +899,7 @@ function SliderRow({ control, command, iconNode, bare }) {
   // Brightness shares the unit-tested slider state machine (uncontrolled input +
   // commit-on-release) — so dragging is smooth (the thumb isn't tugged back by a
   // controlled value) and a back-and-forth drag never floods commands.
-  const s = useSliderModel(control.value ?? min, (v) => command(control, { value: v }));
+  const s = useSliderModel(control.value ?? min, (v) => command(control, { value: v }), { live: true });
   const pct = max > min ? ((s.value - min) / (max - min)) * 100 : 0;
   const shownPct = control.on ? pct : 0;
   const tapIcon = () => command(control, control.on ? { on: false } : { value: control.value ?? max });
@@ -2059,7 +2059,14 @@ function fmtRemaining(ms) {
 // event, so it fires on every drag tick, not on release. Native `input` = drag
 // (thumb only), native `change` = release (commit exactly once). A 4s safety
 // timer fires a `timeout` event so a lost/missed command reconciles to truth.
-function useSliderModel(serverValue, commit) {
+// Live-follow throttle: while dragging in `live` mode, send at most one command
+// per this interval (plus the guaranteed final one on release), so the device
+// follows the drag in real time without being flooded.
+const SLIDER_LIVE_MS = 180;
+
+function useSliderModel(serverValue, commit, opts) {
+  const live = !!(opts && opts.live);
+  const lastLive = useRef(0);
   const elRef = useRef(null);
   const stateRef = useRef(SliderModel.initial(serverValue));
   const [value, setValue] = useState(serverValue);
@@ -2068,6 +2075,8 @@ function useSliderModel(serverValue, commit) {
   commitRef.current = commit;
   const serverRef = useRef(serverValue);   // latest device reading, for timeout reconcile
   serverRef.current = serverValue;
+  const inFlight = useRef(false);           // a live-follow commit's POST is still outstanding
+  const lastCommit = useRef(null);          // promise returned by the last commit() call
   const applyRef = useRef(null);
 
   applyRef.current = (event) => {
@@ -2083,7 +2092,7 @@ function useSliderModel(serverValue, commit) {
       }
     }
     if (r.command != null) {
-      commitRef.current(r.command);
+      lastCommit.current = commitRef.current(r.command);   // may be a promise (gates live-follow)
       clearTimeout(safety.current);
       // On unconfirmed commit, reconcile to the LATEST device reading (the device
       // may never emit a fresh server event if it never moved off its old value).
@@ -2113,8 +2122,32 @@ function useSliderModel(serverValue, commit) {
       elRef.current = el;
       if (el) {
         el.value = String(stateRef.current.value);
-        const i = (e) => applyRef.current({ type: "drag", v: parseInt(e.target.value, 10) });
-        const c = (e) => applyRef.current({ type: "release", v: parseInt(e.target.value, 10) });
+        // Gate the next live update on the PREVIOUS one's POST completing (plus a
+        // min interval), so a slow cloud device (Leviton) can't build a command
+        // backlog while a fast device (WiiM) still feels smooth. The reducer
+        // ignores server readings mid-drag, so gating never fights the thumb.
+        const gate = () => {
+          const p = lastCommit.current;
+          if (p && typeof p.then === "function") {
+            inFlight.current = true;
+            const clear = () => { inFlight.current = false; };
+            p.then(clear, clear);
+          }
+        };
+        const i = (e) => {
+          const v = parseInt(e.target.value, 10);
+          if (live && !inFlight.current && Date.now() - lastLive.current >= SLIDER_LIVE_MS) {
+            lastLive.current = Date.now();
+            applyRef.current({ type: "livecommit", v });   // throttled, completion-gated live update
+            gate();
+          } else {
+            applyRef.current({ type: "drag", v });         // thumb only
+          }
+        };
+        const c = (e) => {
+          applyRef.current({ type: "release", v: parseInt(e.target.value, 10) });  // final value always sends
+          gate();
+        };
         el.__sl = { i: i, c: c };
         el.addEventListener("input", i);
         el.addEventListener("change", c);
@@ -2126,7 +2159,7 @@ function useSliderModel(serverValue, commit) {
 }
 
 function PatioSlider({ value, color, onInput, suffix }) {
-  const s = useSliderModel(value, onInput);
+  const s = useSliderModel(value, onInput, { live: true });
   return (
     <div className="slider-wrap" style={{ marginTop: 0 }}>
       <input ref={s.ref} type="range" min="1" max="100" step="1" defaultValue={s.value}
@@ -2278,7 +2311,9 @@ function PatioTab({ streamTick }) {
 
   // Raw passthrough command, then reload to reconcile to truth.
   const rawCmd = useCallback((path, body) => {
-    apiFetch("/api/raw/fans/cmd", {
+    // Returns the POST promise so slider live-follow can gate the next update on
+    // completion (no command backlog on slow cloud devices like Leviton).
+    return apiFetch("/api/raw/fans/cmd", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, body: body || {} }),
@@ -2479,7 +2514,7 @@ const MUSIC_ACTIVE = new Set(["play", "pause"]);
 // Volume slider for a player; mirrors the patio slider track styling. value 0
 // allowed (a muted/quiet player), so min is 0 here (transport, not on/off).
 function VolSlider({ value, onCommit }) {
-  const s = useSliderModel(value, onCommit);
+  const s = useSliderModel(value, onCommit, { live: true });
   return (
     <div className="np-vol">
       {VOL_SVG}
@@ -2571,7 +2606,7 @@ function MusicTab({ streamTick }) {
   }, [load]);
 
   const setPlayerVol = useCallback((id, vol) => {
-    apiFetch("/api/raw/music/cmd", {
+    return apiFetch("/api/raw/music/cmd", {   // return promise so live-follow gates on completion
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "/api/music/" + encodeURIComponent(id) + "/cmd", body: { vol } }),
@@ -2722,6 +2757,27 @@ function matchesPrediction(control, fields) {
   return true;
 }
 
+// Signature of the LIVE (raw, un-merged) control's values for just the predicted
+// fields. Used to detect whether the device is still settling (value changing)
+// vs. has gone quiet, so the optimistic backstop only gives up once the device
+// stops moving — daemon flux (e.g. a re-poll after restart) can't bounce a tap.
+function liveSignature(control, fields) {
+  if (!control) return "∅";
+  return Object.keys(fields).map((k) => k + "=" + String(control[k])).join("|");
+}
+
+// How long the optimistic overlay holds with NO further device movement before
+// it gives up and reconciles to the device's real value. Reset on every change
+// the device reports, so a slow/settling device extends the window instead of
+// bouncing the control.
+const OPTIMISTIC_BACKSTOP_MS = 6000;
+
+// Hard ceiling on how long an overlay can live even while the device keeps
+// moving. The backstop above resets on flux (so a settling device doesn't
+// bounce), but a device whose value FLAPS forever must never let the UI lie
+// indefinitely — at MAX_MS we reconcile to truth no matter what.
+const OPTIMISTIC_MAX_MS = 20000;
+
 function App() {
   const [state, setState] = useState({ controls: [] });
   const [sections, setSections] = useState([]);    // [{title, ids:[{domain,id}], snapshot:{key->control}}]
@@ -2745,7 +2801,9 @@ function App() {
   // A tap reflects instantly via these fields; SSE reconciliation (or a 6s
   // safety timer) clears each entry.
   const [optimistic, setOptimistic] = useState({});
-  const optimisticTimers = useRef({});             // key -> timeout id
+  const optimisticTimers = useRef({});             // key -> backstop timeout (reset on device flux)
+  const optimisticHardcap = useRef({});            // key -> hard max-age timeout (never reset)
+  const optimisticSig = useRef({});                // key -> last raw device signature (settle tracking)
   // Auth gate. "checking" until /api/auth/me resolves; "ok" once we know we may
   // load (LAN open, or remote + signed in). On remote-not-signed-in we redirect
   // to sign-in and stay "checking" (the browser navigates away). Until "ok" we
@@ -2904,6 +2962,24 @@ function App() {
   // Clear any pending optimistic safety timers on unmount.
   useEffect(() => () => {
     Object.values(optimisticTimers.current).forEach(clearTimeout);
+    Object.values(optimisticHardcap.current).forEach(clearTimeout);
+  }, []);
+
+  // Drop an optimistic overlay and reconcile to the device's real value (the
+  // merge below stops overlaying, so the control shows live state). Used both
+  // when the device confirms the tap and when the backstop gives up.
+  const retireOptimistic = useCallback((key) => {
+    clearTimeout(optimisticTimers.current[key]);
+    clearTimeout(optimisticHardcap.current[key]);
+    delete optimisticTimers.current[key];
+    delete optimisticHardcap.current[key];
+    delete optimisticSig.current[key];
+    setOptimistic((o) => {
+      if (!(key in o)) return o;
+      const next = { ...o };
+      delete next[key];
+      return next;
+    });
   }, []);
 
   const command = useCallback((control, payload) => {
@@ -2912,38 +2988,42 @@ function App() {
       const fields = predict(control, payload);
       if (fields && Object.keys(fields).length) {
         setOptimistic((o) => ({ ...o, [key]: { fields } }));
+        optimisticSig.current[key] = undefined;   // start settle-tracking fresh
         clearTimeout(optimisticTimers.current[key]);
-        optimisticTimers.current[key] = setTimeout(() => {
-          setOptimistic((o) => {
-            if (!(key in o)) return o;
-            const next = { ...o };
-            delete next[key];
-            return next;
-          });
-          delete optimisticTimers.current[key];
-        }, 6000);
+        optimisticTimers.current[key] = setTimeout(() => retireOptimistic(key), OPTIMISTIC_BACKSTOP_MS);
+        clearTimeout(optimisticHardcap.current[key]);
+        optimisticHardcap.current[key] = setTimeout(() => retireOptimistic(key), OPTIMISTIC_MAX_MS);
       }
-      postCommand(control.domain, control.id, payload);
+      return postCommand(control.domain, control.id, payload);  // promise gates live-follow
     }
-  }, []);
+  }, [retireOptimistic]);
 
-  // Reconcile on each SSE snapshot: drop optimistic entries the live state now
-  // satisfies (and cancel their safety timers).
+  // Reconcile on each SSE snapshot, comparing against the RAW (un-merged) device
+  // state — NOT the optimistic-merged view, which would trivially "match" its own
+  // prediction. Retire an overlay only when the device truly confirms the tap.
+  // While the device is still settling (its raw value keeps changing but hasn't
+  // matched yet), reset the backstop so flux can't bounce the control; the
+  // backstop only fires after the device goes quiet without confirming.
   useEffect(() => {
-    setOptimistic((o) => {
-      let changed = false;
-      const next = { ...o };
-      for (const key in o) {
-        const live = byKey[key];
-        if (live && matchesPrediction(live, o[key].fields)) {
-          clearTimeout(optimisticTimers.current[key]);
-          delete optimisticTimers.current[key];
-          delete next[key];
-          changed = true;
-        }
+    const raw = {};
+    (state.controls || []).forEach((c) => { raw[c.domain + ":" + c.id] = c; });
+    for (const key in optimistic) {
+      const live = raw[key];
+      if (!live) continue;
+      const fields = optimistic[key].fields;
+      if (matchesPrediction(live, fields)) {
+        retireOptimistic(key);                       // device confirmed → show truth
+        continue;
       }
-      return changed ? next : o;
-    });
+      const sig = liveSignature(live, fields);
+      if (optimisticSig.current[key] === undefined) {
+        optimisticSig.current[key] = sig;            // first reading after the tap
+      } else if (sig !== optimisticSig.current[key]) {
+        optimisticSig.current[key] = sig;            // device still moving → extend backstop
+        clearTimeout(optimisticTimers.current[key]);
+        optimisticTimers.current[key] = setTimeout(() => retireOptimistic(key), OPTIMISTIC_BACKSTOP_MS);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 

@@ -34,6 +34,12 @@
       case "drag":
         return { state: mk(event.v, true, state.pending), command: null };
 
+      case "livecommit":
+        // Throttled live update WHILE still dragging: emit the command and record
+        // it as pending, but keep dragging=true so server readings stay ignored
+        // (no mid-drag snap). The hook rate-limits how often this fires.
+        return { state: mk(event.v, true, event.v), command: event.v };
+
       case "release":
         return { state: mk(event.v, false, event.v), command: event.v };
 
