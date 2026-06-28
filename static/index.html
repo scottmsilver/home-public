@@ -13,6 +13,7 @@
 <script src="/vendor/react.production.min.js"></script>
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/vendor/babel.min.js"></script>
+<script src="/slider-model.js"></script>
 <style>
 :root {
   /* ── Pentair design tokens ─────────────────────────────────────
@@ -895,35 +896,19 @@ function MomentaryRow({ control, command, iconNode }) {
 
 function SliderRow({ control, command, iconNode, bare }) {
   const [min, max] = control.range || [1, 100];
-  const baseVal = control.on ? (control.value ?? min) : 0;
-  const [drag, setDrag] = useState(null);          // local drag value while sliding
-  const timer = useRef(null);
-  const val = drag != null ? drag : baseVal;
-  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
-  const shownPct = control.on || drag != null ? pct : 0;
-
-  const onInput = (e) => {
-    const v = parseInt(e.target.value, 10);
-    setDrag(v);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      command(control, { value: v });
-    }, 200);
-  };
-  const onCommit = () => {
-    clearTimeout(timer.current);
-    if (drag != null) command(control, { value: drag });
-    setTimeout(() => setDrag(null), 250);          // let SSE catch up before releasing
-  };
+  // Brightness shares the unit-tested slider state machine (uncontrolled input +
+  // commit-on-release) — so dragging is smooth (the thumb isn't tugged back by a
+  // controlled value) and a back-and-forth drag never floods commands.
+  const s = useSliderModel(control.value ?? min, (v) => command(control, { value: v }));
+  const pct = max > min ? ((s.value - min) / (max - min)) * 100 : 0;
+  const shownPct = control.on ? pct : 0;
   const tapIcon = () => command(control, control.on ? { on: false } : { value: control.value ?? max });
 
   const sliderInput = (
-    <input type="range" min={min} max={max} step="1" value={val}
+    <input ref={s.ref} type="range" min={min} max={max} step="1" defaultValue={s.value}
            style={{ "--pct": shownPct + "%" }}
            aria-label={control.name}
-           disabled={!control.online}
-           onInput={onInput}
-           onMouseUp={onCommit} onTouchEnd={onCommit} />
+           disabled={!control.online} />
   );
 
   // Patio summary row (fans-app `comboDimmerRow` style): no name label, no count.
@@ -933,7 +918,7 @@ function SliderRow({ control, command, iconNode, bare }) {
     return (
       <React.Fragment>
         <IconBtn control={control} iconNode={iconNode} onClick={tapIcon} disabled={!control.online} />
-        {control.on || drag != null
+        {control.on
           ? <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center" }}>{sliderInput}</div>
           : <div className="ctl-spacer" />}
       </React.Fragment>
@@ -949,7 +934,7 @@ function SliderRow({ control, command, iconNode, bare }) {
       </div>
       <div className="slider-wrap">
         {sliderInput}
-        <span className="slider-val">{control.on || drag != null ? val : ""}</span>
+        <span className="slider-val">{control.on ? s.value : ""}</span>
       </div>
     </div>
   );
@@ -2059,13 +2044,94 @@ function fmtRemaining(ms) {
 }
 
 // Single discrete slider that fills with its --c color; value 0 == off.
+// Shared model for a slider that drives an async/remote device. The known-good
+// pattern (HA/Sonos/Spotify-style):
+//  • the thumb follows the drag INSTANTLY via local state;
+//  • commands are DEBOUNCED — sent only when motion settles (~140ms pause) and
+//    once more on release — so we never flood the device with a stream of values;
+//  • the server value is IGNORED until it CONFIRMS the value we last sent, so a
+//    stale in-flight reading can't snap the thumb to some other place;
+//  • a safety timer clears that guard after a few seconds so we can't get stuck
+//    out of sync if the device never echoes the exact value.
+// React wrapper around the pure SliderModel state machine (static/slider-model.js,
+// unit-tested in slider-model.test.js). The input is UNCONTROLLED and we bind the
+// real NATIVE events — because React remaps `onChange` onto the native `input`
+// event, so it fires on every drag tick, not on release. Native `input` = drag
+// (thumb only), native `change` = release (commit exactly once). A 4s safety
+// timer fires a `timeout` event so a lost/missed command reconciles to truth.
+function useSliderModel(serverValue, commit) {
+  const elRef = useRef(null);
+  const stateRef = useRef(SliderModel.initial(serverValue));
+  const [value, setValue] = useState(serverValue);
+  const safety = useRef(null);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  const serverRef = useRef(serverValue);   // latest device reading, for timeout reconcile
+  serverRef.current = serverValue;
+  const applyRef = useRef(null);
+
+  applyRef.current = (event) => {
+    const prev = stateRef.current;
+    const r = SliderModel.reduce(prev, event);
+    stateRef.current = r.state;
+    if (r.state.value !== prev.value) {
+      setValue(r.state.value);
+      // When the device (not the user's live drag) moved the value, push it into
+      // the uncontrolled input so the thumb follows.
+      if ((event.type === "server" || event.type === "timeout") && elRef.current) {
+        elRef.current.value = String(r.state.value);
+      }
+    }
+    if (r.command != null) {
+      commitRef.current(r.command);
+      clearTimeout(safety.current);
+      // On unconfirmed commit, reconcile to the LATEST device reading (the device
+      // may never emit a fresh server event if it never moved off its old value).
+      safety.current = setTimeout(() => applyRef.current({ type: "timeout", server: serverRef.current }), 4000);
+    }
+  };
+
+  // Server/snapshot updates flow through the reducer (ignored mid-drag / while a
+  // command is pending until the device echoes it).
+  useEffect(() => { applyRef.current({ type: "server", v: serverValue }); }, [serverValue]);
+  useEffect(() => () => clearTimeout(safety.current), []);
+
+  // Stable callback ref: wire the NATIVE events whenever the <input> actually
+  // mounts (it may be conditionally rendered, e.g. hidden while a light is off)
+  // and tear them down on unmount. native 'input' = drag (thumb only), native
+  // 'change' = release (commit once). React maps onChange onto native input, so
+  // it fires every tick — we must bind the real native events to get release.
+  const refCb = useRef(null);
+  if (!refCb.current) {
+    refCb.current = (el) => {
+      const prev = elRef.current;
+      if (prev && prev.__sl) {
+        prev.removeEventListener("input", prev.__sl.i);
+        prev.removeEventListener("change", prev.__sl.c);
+        prev.__sl = null;
+      }
+      elRef.current = el;
+      if (el) {
+        el.value = String(stateRef.current.value);
+        const i = (e) => applyRef.current({ type: "drag", v: parseInt(e.target.value, 10) });
+        const c = (e) => applyRef.current({ type: "release", v: parseInt(e.target.value, 10) });
+        el.__sl = { i: i, c: c };
+        el.addEventListener("input", i);
+        el.addEventListener("change", c);
+      }
+    };
+  }
+
+  return { value, ref: refCb.current };
+}
+
 function PatioSlider({ value, color, onInput, suffix }) {
+  const s = useSliderModel(value, onInput);
   return (
     <div className="slider-wrap" style={{ marginTop: 0 }}>
-      <input type="range" min="1" max="100" step="1" value={value}
-             style={{ "--pct": value + "%" }}
-             onInput={(e) => onInput(parseInt(e.target.value, 10))} />
-      {suffix !== false ? <span className="slider-val">{value}%</span> : null}
+      <input ref={s.ref} type="range" min="1" max="100" step="1" defaultValue={s.value}
+             style={{ "--pct": s.value + "%" }} />
+      {suffix !== false ? <span className="slider-val">{s.value}%</span> : null}
     </div>
   );
 }
@@ -2412,21 +2478,39 @@ const MUSIC_ACTIVE = new Set(["play", "pause"]);
 
 // Volume slider for a player; mirrors the patio slider track styling. value 0
 // allowed (a muted/quiet player), so min is 0 here (transport, not on/off).
-function VolSlider({ value, onInput }) {
+function VolSlider({ value, onCommit }) {
+  const s = useSliderModel(value, onCommit);
   return (
     <div className="np-vol">
       {VOL_SVG}
-      <input type="range" min="0" max="100" step="1" value={value}
-             style={{ "--pct": value + "%", "--c": "var(--teal)" }}
-             onInput={(e) => onInput(parseInt(e.target.value, 10))} />
-      <span className="slider-val">{value}</span>
+      <input ref={s.ref} type="range" min="0" max="100" step="1" defaultValue={s.value}
+             style={{ "--pct": s.value + "%", "--c": "var(--teal)" }} />
+      <span className="slider-val">{s.value}</span>
     </div>
   );
 }
 
 // One active player: art + meta, then transport + volume.
 function PlayerCard({ player, onCmd, onVol }) {
-  const playing = player.status === "play";
+  // Optimistic transport: flip play/pause INSTANTLY on tap, then reconcile once
+  // the server (push/SSE) reflects it — or a 4s safety timer clears the guess.
+  const [optStatus, setOptStatus] = useState(null);
+  const optTimer = useRef(null);
+  useEffect(() => {
+    if (optStatus != null && player.status === optStatus) {
+      clearTimeout(optTimer.current); setOptStatus(null);
+    }
+  }, [player.status, optStatus]);
+  useEffect(() => () => clearTimeout(optTimer.current), []);
+
+  const status = optStatus != null ? optStatus : player.status;
+  const playing = status === "play";
+  const toggle = () => {
+    setOptStatus(playing ? "pause" : "play");
+    clearTimeout(optTimer.current);
+    optTimer.current = setTimeout(() => setOptStatus(null), 4000);
+    onCmd(player.id, "toggle");
+  };
   const rooms = (player.rooms && player.rooms.length) ? player.rooms.join(" · ") : player.name;
   const title = player.title || "—";
   const artist = [player.artist, player.album].filter(Boolean).join(" — ");
@@ -2449,9 +2533,9 @@ function PlayerCard({ player, onCmd, onVol }) {
       <div className="np-transport">
         <button className="tbtn" aria-label="Previous" onClick={() => onCmd(player.id, "prev")}>{PREV_SVG}</button>
         <button className="tbtn primary" aria-label={playing ? "Pause" : "Play"}
-                onClick={() => onCmd(player.id, "toggle")}>{playing ? PAUSE_SVG : PLAY_SVG}</button>
+                onClick={toggle}>{playing ? PAUSE_SVG : PLAY_SVG}</button>
         <button className="tbtn" aria-label="Next" onClick={() => onCmd(player.id, "next")}>{NEXT_SVG}</button>
-        <VolSlider value={player.vol ?? 0} onInput={(v) => onVol(player.id, v)} />
+        <VolSlider value={player.vol ?? 0} onCommit={(v) => onVol(player.id, v)} />
       </div>
     </div>
   );
