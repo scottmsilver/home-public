@@ -122,6 +122,7 @@ body {
 }
 .card-title { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.2px; }
 .card-status { font-size: var(--fs-sub); color: var(--label2); font-variant-numeric: tabular-nums; }
+.card-status.est { font-style: italic; color: var(--label3, var(--label2)); }
 /* Patio grouped cards: a divider between the group control and the per-device
    list, and each embedded device gets its own (smaller) name + spacing. */
 .patio-divider { height: 1px; background: var(--card-border); margin: 16px 2px 2px; }
@@ -1627,8 +1628,16 @@ function BodyCard({ title, body, control, setpoint, onSet }) {
   if (!body) return null;
   const badge = bodyBadge(body);
   const td = body.temperature_display;
-  const temp = td && td.value != null ? td.value : body.temperature;
+  // When there's no live reliable reading, show the daemon's weather-informed
+  // estimate (if it has one) instead of a stale number, labelled plainly.
+  const showEstimate = !body.temperature_reliable && body.predicted_temperature != null;
+  const temp = showEstimate
+    ? body.predicted_temperature
+    : (td && td.value != null ? td.value : body.temperature);
   const age = td && td.last_reliable_at_unix_ms ? timeAgo(td.last_reliable_at_unix_ms) : "";
+  const trailing = showEstimate
+    ? <span className="card-status est">estimate</span>
+    : (age ? <span className="card-status">{age}</span> : null);
   const { text: etaText, pct } = heatEstimate(body);
   return (
     <div className="card">
@@ -1636,8 +1645,7 @@ function BodyCard({ title, body, control, setpoint, onSet }) {
         <div className="card-title">{title}</div>
         <span className={"badge " + badge.tone}>{badge.text}</span>
       </div>
-      <TempReadout temp={temp}
-                   trailing={age ? <span className="card-status">{age}</span> : null} />
+      <TempReadout temp={temp} trailing={trailing} />
       {etaText ? <div className="spa-heat-info">{etaText}</div> : null}
       {pct > 0 ? (
         <div className="heat-progress"><div className="heat-progress-bar" style={{ width: pct + "%" }} /></div>
