@@ -562,6 +562,7 @@ input[type=range]::-moz-range-thumb {
   font-size: var(--fs-sub); color: var(--orange); font-weight: 500;
   margin-top: 4px; margin-bottom: 2px;
 }
+.spa-heat-info.est { color: var(--label2); font-weight: 400; font-style: italic; }
 /* segmented Off / Spa / Jets pills */
 .spa-seg { display: flex; gap: 8px; margin-top: 12px; margin-bottom: 4px; }
 .spa-seg-btn {
@@ -1407,7 +1408,8 @@ function SpaCard({ title, controls, command }) {
       </div>
 
       <TempReadout temp={temp} />
-      {eta ? <div className="spa-heat-info">{eta}</div> : null}
+      {eta ? <div className="spa-heat-info">{eta}</div>
+           : (spa && spa.estimate ? <div className="spa-heat-info est">estimate</div> : null)}
 
       <SpaSegSelect
         options={segOpts.map((opt) => [opt.toLowerCase(), cap(opt.toLowerCase())])}

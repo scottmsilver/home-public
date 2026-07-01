@@ -18,6 +18,8 @@ class Control:
     offline: int = 0
     status: str | None = None
     online: bool = True
+    # True when `value` is a weather-informed estimate (no live reliable reading).
+    estimate: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -33,4 +35,5 @@ class Control:
             "offline": self.offline,
             "status": self.status,
             "online": self.online,
+            "estimate": self.estimate,
         }
