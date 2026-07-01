@@ -83,6 +83,11 @@ def test_snapshot_one_control_per_door_plus_aggregate():
     assert c["side"].on is True and c["side"].mode == "forever" and c["side"].status == "Held open"
 
     assert c["back"].mode == "timed" and c["back"].status.startswith("Held until")
+    # The raw epoch expiry is carried through so the browser can render the hold
+    # end time in the VIEWER's timezone (the server may run in UTC and must not
+    # be the source of truth for wall-clock formatting).
+    assert c["back"].expires_at == 1_700_000_000
+    assert c["front"].expires_at is None
 
     # Fallback: no lock_state -> derive from flattened status (consistent
     # Closed/Open wording).

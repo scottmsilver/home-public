@@ -98,6 +98,7 @@ class GateAdapter(Adapter):
                     on=bool(d.get("is_held")),
                     status=status,
                     online=bool(d.get("is_online", True)),
+                    expires_at=d.get("expires_at"),
                 )
             )
         locked = sum(1 for d in doors if d.get("status") == "locked")

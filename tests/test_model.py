@@ -30,6 +30,8 @@ def test_control_to_dict_includes_all_fields():
         "status": "2 of 4",
         "online": True,
         "offline": 1,
+        "estimate": False,
+        "expires_at": None,
     }
 
 
