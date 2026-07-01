@@ -20,6 +20,9 @@ class Control:
     online: bool = True
     # True when `value` is a weather-informed estimate (no live reliable reading).
     estimate: bool = False
+    # Epoch seconds a timed hold ends (gate). Carried raw so the browser renders
+    # the wall-clock time in the VIEWER's timezone — the server may run in UTC.
+    expires_at: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -36,4 +39,5 @@ class Control:
             "status": self.status,
             "online": self.online,
             "estimate": self.estimate,
+            "expires_at": self.expires_at,
         }

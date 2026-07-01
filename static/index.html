@@ -121,6 +121,7 @@ body {
   margin-bottom: 14px; min-height: 22px;
 }
 .card-title { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.2px; }
+.card-title-with-status { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .card-status { font-size: var(--fs-sub); color: var(--label2); font-variant-numeric: tabular-nums; }
 .card-status.est { font-style: italic; color: var(--label3, var(--label2)); }
 /* Patio grouped cards: a divider between the group control and the per-device
@@ -153,6 +154,12 @@ body {
 .badge.teal   { background: var(--state-active-bg);    color: var(--state-active); }
 .badge.orange { background: var(--state-attention-bg); color: var(--state-attention); }
 .badge.gray   { background: var(--state-neutral-bg);   color: var(--state-neutral); }
+/* Tappable gate hold status (shared by the Home card + the Gate tab): the
+   dotted underline signals "tap to change the hold". */
+.gate-hold-change {
+  cursor: pointer; text-decoration: underline;
+  text-decoration-style: dotted; text-underline-offset: 2px;
+}
 
 /* group divider label inside the unified Home card */
 .group-label {
@@ -526,10 +533,6 @@ input[type=range]::-moz-range-thumb {
 }
 .gate-door-status.open { color: var(--state-attention); }
 .gate-door-status.offline { color: var(--state-neutral); }
-.gate-door-status .link {
-  cursor: pointer; text-decoration: underline; text-decoration-style: dotted;
-  text-underline-offset: 2px;
-}
 .gate-door-spin { flex-shrink: 0; }
 
 /* setpoint stepper (inline +/- around a big value) */
@@ -1180,6 +1183,63 @@ function compactTime(s) {
   return mm === "00" ? `${h}${suf}` : `${h}:${mm}${suf}`;
 }
 
+// ── Gate hold-time rendering (ONE source of truth) ─────────────────
+// The server carries only the raw epoch (`control.expires_at`) because it may
+// run in UTC; the browser is the single authority for local time-of-day. Every
+// surface that shows a hold end time (Home card badge, TristateRow, the hold
+// sheet) goes through these helpers so they can never disagree or drift back to
+// the server's timezone.
+
+// "6:00 PM" in the viewer's timezone from epoch seconds, or null. Rejects
+// non-finite / non-positive values so a garbage upstream expiry can't render
+// "Invalid Date".
+function gateHoldEndTime(expiresAt) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
+  return new Date(expiresAt * 1000)
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// Local hold end time for a normalized gate Control ("6:00 PM"), or null when
+// it isn't on a timed hold. Prefers the epoch; falls back to parsing the
+// (possibly UTC) server status string for older payloads without expires_at.
+function gateControlHoldTime(control) {
+  if (control.mode !== "timed") return null;
+  const local = gateHoldEndTime(control.expires_at);
+  if (local) return local;
+  // Legacy fallback: only when the server status actually carries a clock time
+  // ("Held until 6:00 PM") — never a time-less label like "Held (timed)".
+  const m = /^Held until (.+)/i.exec(control.status || "");
+  return m ? m[1] : null;
+}
+
+// Status sub-text for a gate Control, viewer-local, mirroring the Gate tab's
+// wording ("Open until 6:00 PM" / "Open forever"); anything else (Closed /
+// Open / "N locked") passes through the server status verbatim.
+function gateControlStatus(control) {
+  if (control.mode === "forever") return "Open forever";
+  const t = gateControlHoldTime(control);
+  if (t) return "Open until " + t;
+  // Timed hold with no known end time → just "Open" (never "Open until <label>").
+  if (control.mode === "timed") return "Open";
+  return control.status || "";
+}
+
+// "HH:MM" seed for the <input type=time> picker, in the viewer's timezone.
+function gateHoldSeed(control) {
+  if (Number.isFinite(control.expires_at) && control.expires_at > 0) {
+    const d = new Date(control.expires_at * 1000);
+    return String(d.getHours()).padStart(2, "0") + ":" +
+           String(d.getMinutes()).padStart(2, "0");
+  }
+  const m = (control.status || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (m) {
+    let h = parseInt(m[1], 10) % 12;
+    if (m[3].toUpperCase() === "PM") h += 12;
+    return String(h).padStart(2, "0") + ":" + m[2];
+  }
+  return "18:00";
+}
+
 function TristateRow({ control, command, iconNode, bare }) {
   const [busy, setBusy] = useState(false);        // brief tap feedback for the Once pulse
   const [sheet, setSheet] = useState(false);
@@ -1200,10 +1260,11 @@ function TristateRow({ control, command, iconNode, bare }) {
     setSheet(true);
   };
 
-  // "Until" label: when held-today, show the end time from status
-  // ("Held until 8:00 PM" → "Until 8:00 PM"); otherwise a sensible default.
-  const untilLabel = mode === "timed" && control.status
-    ? "Until " + compactTime(control.status.replace(/^Held until /i, ""))
+  // All hold-time text comes from the centralized, viewer-local helpers.
+  const heldTime = gateControlHoldTime(control);
+  const statusText = gateControlStatus(control);
+  const untilLabel = heldTime
+    ? "Until " + compactTime(heldTime)
     : "Until " + compactTime("6:00 PM");
 
   return (
@@ -1213,7 +1274,7 @@ function TristateRow({ control, command, iconNode, bare }) {
         <IconBtn control={control} iconNode={iconNode} onClick={once} disabled={!control.online} />
         <div className="ctl-main">
           <span className="ctl-name">{control.name}</span>
-          {control.status ? <span className="ctl-sub">{control.status}</span> : null}
+          {statusText ? <span className="ctl-sub">{statusText}</span> : null}
         </div>
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
@@ -1249,17 +1310,7 @@ function ReadoutRow({ control, iconNode }) {
 function GateHoldSheet({ control, command, mode, onClose }) {
   // Seed the picker from the current "Held until 6:00 PM" status when a timed
   // hold is active; otherwise default to 6:00 PM (18:00).
-  const seed = () => {
-    if (mode === "timed" && control.status) {
-      const m = control.status.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-      if (m) {
-        let h = parseInt(m[1], 10) % 12;
-        if (m[3].toUpperCase() === "PM") h += 12;
-        return String(h).padStart(2, "0") + ":" + m[2];
-      }
-    }
-    return "18:00";
-  };
+  const seed = () => (mode === "timed" ? gateHoldSeed(control) : "18:00");
   const [time, setTime] = useState(seed);
   const held = mode === "timed" || mode === "forever";
   const run = (payload) => { command(control, payload); onClose(); };
@@ -1284,6 +1335,31 @@ function GateHoldSheet({ control, command, mode, onClose }) {
         <button className="sheet-row" onClick={onClose}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+// Shared clickable gate hold status — used by BOTH the Home summary card (beside
+// the "Gate" title) and the Gate tab door card, so the two are identical. Shows
+// the viewer-local status ("Open until 6:00 PM" / "Open forever" / "Closed" …)
+// and, whenever the gate is on a hold, is tappable to open the hold sheet to
+// change or clear it. `control` is a Control-like object (name/status/expires_at);
+// `mode` is "timed" | "forever" | null; `command(control, payload)` dispatches.
+function GateHoldStatus({ control, mode, command, className }) {
+  const [sheet, setSheet] = useState(false);
+  const ctl = { ...control, mode };
+  const holdable = mode === "timed" || mode === "forever";
+  const cls = [className, holdable ? "gate-hold-change" : ""].filter(Boolean).join(" ");
+  return (
+    <React.Fragment>
+      <span className={cls || undefined}
+            onClick={holdable ? () => setSheet(true) : undefined}>
+        {gateControlStatus(ctl)}
+      </span>
+      {sheet ? (
+        <GateHoldSheet control={ctl} mode={mode} command={command}
+                       onClose={() => setSheet(false)} />
+      ) : null}
+    </React.Fragment>
   );
 }
 
@@ -1443,18 +1519,7 @@ function sectionBadge(title, controls) {
   const byKind = (k) => controls.find((c) => c.kind === k);
   const t = (title || "").toLowerCase();
 
-  // Gate → the door/momentary/tristate control's status.
-  if (t.indexOf("gate") !== -1) {
-    const door = byKind("tristate") || byKind("momentary") ||
-                 controls.find((c) => c.domain === "gate");
-    if (!door) return null;
-    const status = door.status || "";
-    // Wording is now "Closed"/"Open"/"Held…": Closed → green, Open/Held → amber.
-    let tone = "orange";
-    if (/closed/i.test(status) || /lock/i.test(status)) tone = "green";
-    return status ? { text: status, tone } : null;
-  }
-
+  // (Gate renders a clickable GateHoldStatus in the title row — see SectionCard.)
   // (Spa + Pool Light render as a custom SpaCard, which computes its own badge.)
 
   // Fans → optional All Fans status (e.g. "2 of 4").
@@ -1481,10 +1546,18 @@ function SectionCard({ title, controls, command }) {
   }
 
   const badge = sectionBadge(title, controls);
-  // In the Gate summary card the header (title) + badge (lock state) already
-  // convey name + status, so a lone gate door renders bare (buttons only).
+  // In the Gate summary card the header (title) + status already convey name +
+  // state, so a lone gate door renders bare (buttons only). The status beside
+  // the "Gate" title is the SAME clickable GateHoldStatus the Gate tab uses.
   const isGateCard = tl.indexOf("gate") !== -1;
   const singleTristate = controls.length === 1 && controls[0].kind === "tristate";
+  const gateDoor = isGateCard
+    ? (controls.find((c) => c.kind === "tristate") ||
+       controls.find((c) => c.kind === "momentary") ||
+       controls.find((c) => c.domain === "gate"))
+    : null;
+  const gateTone = gateDoor && /closed|lock/i.test(gateControlStatus(gateDoor))
+    ? "green" : "orange";
 
   // Patio summary card → label-less fans-app home rows (icon + control + a small
   // group-status indicator, no "Fans"/"Lights" name). Only the speed (fans) and
@@ -1502,8 +1575,20 @@ function SectionCard({ title, controls, command }) {
   return (
     <div className="card">
       <div className="card-title-row">
-        <div className="card-title">{title}</div>
-        {badge ? <span className={"badge " + badge.tone}>{badge.text}</span> : null}
+        {gateDoor ? (
+          // Gate: status pill sits right next to the "Gate" title (same element +
+          // behavior as the Gate tab) so the two surfaces read consistently.
+          <div className="card-title-with-status">
+            <div className="card-title">{title}</div>
+            <GateHoldStatus control={gateDoor} mode={gateDoor.mode} command={command}
+                            className={"badge " + gateTone} />
+          </div>
+        ) : (
+          <React.Fragment>
+            <div className="card-title">{title}</div>
+            {badge ? <span className={"badge " + badge.tone}>{badge.text}</span> : null}
+          </React.Fragment>
+        )}
       </div>
       {rows.length ? rows : <div className="card-status">No controls.</div>}
       {isPatioCard ? <OfflineWarning controls={controls} /> : null}
@@ -1781,17 +1866,8 @@ const GATE_DEFAULT_END_DISPLAY = (() => {
   return `${h}${GATE_DEFAULT_END_HOUR >= 12 ? "p" : "a"}`;
 })();
 
-// "6p" / "7:30p" style from a Date.
-function gateTimeShort(d) {
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const suf = h >= 12 ? "p" : "a";
-  const hh = h % 12 || 12;
-  return m > 0 ? `${hh}:${String(m).padStart(2, "0")}${suf}` : `${hh}${suf}`;
-}
-
 // One faithful door card. Mirrors unifi-gate's DoorRow: image/lock-icon slot,
-// name + status line (Locked / Open · until X / Open · forever / Offline), and
+// name + status line (Locked / Open until X / Open forever / Offline), and
 // the Open button group (Once / Until / Forever) with green-highlighted holds.
 function GateDoor({ door, onCommand }) {
   const [busy, setBusy] = useState(false);   // Once tap pulse
@@ -1810,12 +1886,6 @@ function GateDoor({ door, onCommand }) {
     ? derived.open
     : (isHeld || (door.status || "").toLowerCase().includes("unlock"));
   const online = door.is_online !== false;
-
-  const expiryDisplay = (() => {
-    if (!isHeld || !door.expires_at) return null;
-    if (holdState === "hold_forever") return "forever";
-    return gateTimeShort(new Date(door.expires_at * 1000));
-  })();
 
   const isPast6pm = new Date().getHours() >= GATE_DEFAULT_END_HOUR;
 
@@ -1837,7 +1907,21 @@ function GateDoor({ door, onCommand }) {
     run({ action: holdState === "hold_forever" ? "stop" : "hold_forever" });
   };
 
-  // Status line text.
+  // Control-like object + mode consumed by the shared GateHoldStatus/GateHoldSheet.
+  const sheetMode = holdState === "hold_today" ? "timed" : (holdState === "hold_forever" ? "forever" : null);
+  const sheetControl = {
+    domain: "gate",
+    id: door.id,
+    name: door.name,
+    expires_at: door.expires_at,
+    status: door.status,
+  };
+  // Viewer-local hold end time ("6:00 PM"), from the SAME helper the Home card
+  // uses — no second epoch→time formatter.
+  const holdTime = gateControlHoldTime({ ...sheetControl, mode: sheetMode });
+
+  // Status line text. Held states render the SAME clickable GateHoldStatus as
+  // the Home card so the two surfaces are identical; other states are plain text.
   let statusNode;
   let statusCls = "gate-door-status";
   if (!online) {
@@ -1845,13 +1929,10 @@ function GateDoor({ door, onCommand }) {
     statusCls += " offline";
   } else if (isOpen) {
     statusCls += " open";
-    if (holdState === "hold_forever") {
-      statusNode = "Open · forever";
-    } else if (holdState === "hold_today" && expiryDisplay) {
+    if (holdState === "hold_forever" || (holdState === "hold_today" && holdTime)) {
       statusNode = (
-        <span className="link" onClick={() => setSheet(true)}>
-          Open · until {expiryDisplay}
-        </span>
+        <GateHoldStatus control={sheetControl} mode={sheetMode}
+                        command={(_c, p) => run(p)} />
       );
     } else {
       statusNode = "Open";
@@ -1860,20 +1941,9 @@ function GateDoor({ door, onCommand }) {
     statusNode = derived.label || "Closed";
   }
 
-  const untilLabel = holdState === "hold_today" && expiryDisplay
-    ? `Until ${expiryDisplay}`
+  const untilLabel = holdState === "hold_today" && holdTime
+    ? `Until ${compactTime(holdTime)}`
     : (isPast6pm ? "Until…" : `Until ${GATE_DEFAULT_END_DISPLAY}`);
-
-  // GateHoldSheet expects a control-like object with name/status/mode.
-  const sheetControl = {
-    domain: "gate",
-    id: door.id,
-    name: door.name,
-    status: isHeld && door.expires_at && holdState === "hold_today"
-      ? "Held until " + new Date(door.expires_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-      : door.status,
-  };
-  const sheetMode = holdState === "hold_today" ? "timed" : (holdState === "hold_forever" ? "forever" : null);
 
   const hasImage = !!door.imageUrl && !imgFailed;
 
