@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
 from flask import Flask, Response, jsonify, make_response, redirect, request, send_from_directory
+from markupsafe import escape
 from werkzeug.utils import safe_join
 
 from homed.auth import GRANT_COOKIE, HANDOFF_PARAM, SESSION_COOKIE, SESSION_TTL, STATE_COOKIE, AuthGate
@@ -316,7 +317,29 @@ def create_app(aggregator, home_rows, web):
         if grant and gate.consume_grant_ticket(grant):
             gate.approve_email(email)
         if not gate.email_allowed(email):
-            resp = make_response(f"{email} not allowed", 403)
+            # Denied page with a way forward: when a LAN-only vhost is
+            # configured, tell the (identity-verified but unapproved) user how
+            # to self-approve from the home network. URL comes from config —
+            # never hardcoded.
+            # Escape untrusted values before embedding in HTML. `email` is a
+            # signed-JWT claim (charset unchecked); local_url derives from
+            # config. Both go through markupsafe.escape to prevent HTML injection.
+            hint = ""
+            if gate.local_hosts:
+                local_url = escape(f"https://{sorted(gate.local_hosts)[0]}")
+                hint = (
+                    f'<p>On the home Wi-Fi? Open <a href="{local_url}">{local_url}</a> '
+                    f"and tap the key button (top right) to approve yourself &mdash; "
+                    f"then sign in here again.</p>"
+                )
+            body = (
+                "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+                "<body style='font-family:system-ui;background:#0b0c0e;color:#e7e9ea;"
+                "display:flex;min-height:100vh;align-items:center;justify-content:center'>"
+                f"<div style='max-width:26rem;padding:1.5rem'><h3>{escape(email)} isn&rsquo;t approved yet</h3>"
+                f"<p>Your sign-in worked, but this account hasn&rsquo;t been given access.</p>{hint}</div>"
+            )
+            resp = make_response(body, 403)
             resp.delete_cookie(STATE_COOKIE, path="/")
             resp.delete_cookie(GRANT_COOKIE, path="/")
             return resp

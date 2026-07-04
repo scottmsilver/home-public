@@ -618,6 +618,73 @@ def test_grant_login_callback_approves_unlisted_email():
     assert client.get_cookie("home_session", domain="home.example.com") is not None
 
 
+def test_denied_page_hints_local_selfapprove_when_configured():
+    import time
+
+    import jwt as _jwt
+
+    # With a LAN vhost configured, the denied page tells the verified-but-
+    # unapproved user where to self-approve. Without one, no hint (and no
+    # hardcoded URL) appears.
+    for local_hosts, expect_hint in ([["home.i.example.com"], True], [[], False]):
+        client, _, gate = make_auth_client(
+            web={
+                "remote_domain": "home.example.com",
+                "allowed_emails": [],
+                "broker_url": "https://b",
+                "local_hosts": local_hosts,
+            }
+        )
+        client.get("/api/auth/login", headers={"Host": "home.example.com"})
+        state = client.get_cookie("home_oauth_state", domain="home.example.com").value
+        handoff = _jwt.encode(
+            {"email": "genevieve@gmail.com", "exp": int(time.time()) + 60},
+            gate.handoff_secret,
+            algorithm="HS256",
+        )
+        r = client.get(
+            f"/api/auth/callback?state={state}&silver_oauth={handoff}",
+            headers={"Host": "home.example.com"},
+        )
+        assert r.status_code == 403
+        body = r.get_data(as_text=True)
+        assert ("https://home.i.example.com" in body) is expect_hint
+        assert "isn&rsquo;t approved yet" in body
+
+
+def test_denied_page_escapes_email_claim():
+    import time
+
+    import jwt as _jwt
+
+    # The email claim is a signed-JWT value with an unchecked charset. It must be
+    # HTML-escaped before landing in the denied page, or a malicious/malformed
+    # claim becomes reflected XSS at the auth boundary.
+    client, _, gate = make_auth_client(
+        web={
+            "remote_domain": "home.example.com",
+            "allowed_emails": [],
+            "broker_url": "https://b",
+            "local_hosts": ["home.i.example.com"],
+        }
+    )
+    client.get("/api/auth/login", headers={"Host": "home.example.com"})
+    state = client.get_cookie("home_oauth_state", domain="home.example.com").value
+    handoff = _jwt.encode(
+        {"email": "<script>alert(1)</script>@evil.com", "exp": int(time.time()) + 60},
+        gate.handoff_secret,
+        algorithm="HS256",
+    )
+    r = client.get(
+        f"/api/auth/callback?state={state}&silver_oauth={handoff}",
+        headers={"Host": "home.example.com"},
+    )
+    assert r.status_code == 403
+    body = r.get_data(as_text=True)
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+
+
 def test_auth_me_reports_lan_flag():
     client, _ = make_client(
         web={"remote_domain": "home.example.com", "allowed_emails": ["you@gmail.com"], "broker_url": "https://b"}

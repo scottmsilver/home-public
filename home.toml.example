@@ -15,7 +15,8 @@ base_url = "http://127.0.0.1:8096"
 
 [web]
 bind           = "0.0.0.0:8099"
-remote_domain  = ""                    # e.g. "home.i.example.com"; empty = LAN-only
+remote_domain  = ""                    # public remote domain (Cloudflare tunnel); empty = LAN-only
+local_hosts    = []                    # LAN-only vhosts that count as on-network for self-approve, e.g. ["home.i.example.com"]
 broker_url     = "https://auth.example.com"
 allowed_emails = []                    # e.g. ["you@gmail.com"]
 
