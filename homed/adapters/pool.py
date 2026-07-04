@@ -96,7 +96,9 @@ class PoolAdapter(Adapter):
             spa_on = bool(spa.get("on"))
             jets_on = bool((spa.get("accessories") or {}).get("jets"))
             spa_mode = "jets" if (spa_on and jets_on) else ("spa" if spa_on else "off")
-            temp = spa.get("temperature")
+            # No live reliable reading → show the daemon's weather-informed estimate.
+            spa_est = (not spa.get("temperature_reliable")) and spa.get("predicted_temperature") is not None
+            temp = spa.get("predicted_temperature") if spa_est else spa.get("temperature")
             prog = spa.get("spa_heat_progress") or {}
             if prog.get("active") and prog.get("target_temp_f"):
                 mins = prog.get("minutes_remaining")
@@ -115,6 +117,7 @@ class PoolAdapter(Adapter):
                     on=spa_on,
                     value=temp,
                     status=status,
+                    estimate=spa_est,
                 )
             )
             out.append(
