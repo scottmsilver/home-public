@@ -645,8 +645,6 @@ input[type=range]::-moz-range-thumb {
 .heat-progress-bar { height: 100%; border-radius: 2px; background: var(--warm); transition: width 1s ease; }
 /* lights status (pentair lights card header) */
 .lights-status-on { color: var(--teal); }
-/* full-width swatch grid used in the standalone Lights card (5 cols like pentair) */
-.swatches.grid5 { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); }
 /* auxiliaries: a wrapping row of toggle buttons (pentair aux look) */
 .auxs { display: flex; gap: 8px; flex-wrap: wrap; }
 .aux-btn {
@@ -1768,41 +1766,31 @@ function PoolSeg({ pool, command }) {
   );
 }
 
-// Pentair 5-column color swatch grid for the Lights card. An Off swatch first,
-// then one circular swatch per available_mode, active ring on the current mode.
+// Pool-tab Lights card. Standardized on the Home tab's light widget: the same
+// collapsed/expandable swatch gallery (ModesRow) the Home Spa card uses, rather
+// than an always-open 5-column grid. We adapt the raw pentair `lights` into the
+// normalized `control` shape ModesRow expects and bridge its (control, payload)
+// command back to the pool passthrough — so both tabs render identically.
 function LightsCard({ lights, command }) {
   if (!lights) return null;
   const on = !!lights.on;
-  const mode = (lights.mode || "").toLowerCase();
   // Drop pentair plumbing modes (not user-selectable colors/scenes), matching
   // the home pool adapter's _PLUMBING_MODES filter.
   const PLUMBING = { off: 1, on: 1, set: 1, sync: 1 };
   const modes = (lights.available_modes || []).filter((m) => !PLUMBING[m.toLowerCase()]);
   let statusText = "Off";
   if (on && lights.mode) statusText = lights.mode.charAt(0).toUpperCase() + lights.mode.slice(1);
+  // Normalized control for ModesRow (color swatches come from `options`).
+  const control = { id: "lights", name: "Lights", on, mode: lights.mode, options: modes, online: true };
+  // ModesRow calls command(control, payload); route it to the pool light.
+  const modesCommand = (_control, payload) => command("pool", "lights", payload);
   return (
     <div className="card">
       <div className="card-title-row">
         <div className="card-title">Lights</div>
         <span className={"card-status" + (on ? " lights-status-on" : "")}>{statusText}</span>
       </div>
-      <div className="swatches grid5">
-        <button className={"swatch" + (!on ? " on" : "")}
-                style={{ background: SWATCH_BG.off, color: "var(--label2)" }}
-                aria-label="Off" onClick={() => command("pool", "lights", { on: false })}>
-          {POWER_SVG}
-        </button>
-        {modes.map((m) => {
-          const key = m.toLowerCase();
-          const bg = SWATCH_BG[key] || "var(--track)";
-          const active = on && key === mode;
-          return (
-            <button key={m} className={"swatch" + (active ? " on" : "")}
-                    style={{ background: bg }} aria-label={m}
-                    onClick={() => command("pool", "lights", { mode: m })} />
-          );
-        })}
-      </div>
+      <ModesRow control={control} command={modesCommand} bare />
     </div>
   );
 }
