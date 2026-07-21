@@ -4,7 +4,6 @@ import time
 from urllib.parse import quote
 
 import requests
-
 from homed.adapters.base import Adapter
 from homed.model import Control
 
@@ -54,21 +53,23 @@ class GateAdapter(Adapter):
     domain = "gate"
 
     def raw(self):
-        """Return the full, unnormalized unifi-gate door list (GET /devices).
+        """Return {"doors": [...], "operator": {...}|None} for the Gate tab.
 
-        Used by the faithful unifi-gate-style Gate tab, which renders the door
-        cards directly rather than the home-normalized Controls. Carries the
-        same injected X-Verified-User header used by every other request.
-
-        Each door is enriched with a ``derived`` object (the same canonical
-        locked/open/label/mode the Home tab uses) so the Gate tab consumes one
-        source of truth instead of re-deriving status from raw fields.
+        Doors are the unifi-gate list enriched with the canonical ``derived``
+        state (same source of truth the Home tab uses). ``operator`` is the
+        Viking gate-operator snapshot from the backend's GET /operator, or None
+        if that endpoint is unavailable — a failing operator never breaks the
+        door list.
         """
         doors = self.get_json("/devices")
         for d in doors:
             if isinstance(d, dict):
                 d["derived"] = _door_state(d)
-        return doors
+        try:
+            operator = self.get_json("/operator")
+        except Exception:
+            operator = None
+        return {"doors": doors, "operator": operator}
 
     def door_image(self, door_id):
         """Fetch a door's snapshot/cover image from unifi-gate.

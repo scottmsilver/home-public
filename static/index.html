@@ -14,6 +14,7 @@
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/vendor/babel.min.js"></script>
 <script src="/slider-model.js"></script>
+<script src="/operator-view.js?v=3"></script>
 <style>
 :root {
   /* ── Pentair design tokens ─────────────────────────────────────
@@ -278,6 +279,8 @@ input[type=range]::-moz-range-thumb {
   animation: spin .7s linear infinite; display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes opFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes opRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Music tab ──────────────────────────────────────────────────── */
 /* now-playing row: album art + meta + (below) transport & volume */
@@ -1974,17 +1977,172 @@ function GateDoor({ door, onCommand }) {
   );
 }
 
+// Discrete Viking gate-operator affordance: subtle when healthy, a prominent
+// banner on error, expandable to all diagnostics. Presenter logic (which state,
+// what text) lives in the unit-tested OperatorView.operatorView helper.
+// Activity filter chips (Voltage off by default — it's noisy telemetry).
+const OP_KINDS = [
+  { key: "gate", letter: "g", label: "Gate" },
+  { key: "online", letter: "c", label: "Connectivity" },
+  { key: "fault", letter: "x", label: "Faults" },
+  { key: "voltage", letter: "v", label: "Voltage" },
+];
+const OP_DEFAULT_FILTERS = { gate: true, online: true, fault: true, voltage: false };
+
+// Persist the panel's open state + active chips in the URL (?op=1&opf=gcx) so a
+// refresh keeps this mode instead of collapsing back to the icon. Path is left
+// untouched so the SPA's tab routing still works.
+function readOpUrl() {
+  const p = new URLSearchParams(window.location.search);
+  const open = p.get("op") === "1";
+  let filters = { ...OP_DEFAULT_FILTERS };
+  const f = p.get("opf");
+  if (f != null) { filters = {}; OP_KINDS.forEach((k) => { filters[k.key] = f.includes(k.letter); }); }
+  return { open, filters };
+}
+function writeOpUrl(open, filters) {
+  const u = new URL(window.location.href);
+  if (open) {
+    u.searchParams.set("op", "1");
+    u.searchParams.set("opf", OP_KINDS.filter((k) => filters[k.key]).map((k) => k.letter).join(""));
+  } else { u.searchParams.delete("op"); u.searchParams.delete("opf"); }
+  window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+}
+
+const OP_PAGE = 8;
+
+// Collapsed by default to a single small gate icon (color = status: green live,
+// amber idle, red fault, grey offline). Tapping it reveals the panel with all
+// diagnostics + a filterable, paged activity log. Open/filters persist in the URL.
+function OperatorAffordance({ operator }) {
+  const [open, setOpen] = useState(() => readOpUrl().open);
+  const [filters, setFilters] = useState(() => readOpUrl().filters);
+  const [page, setPage] = useState(0);
+  useEffect(() => { writeOpUrl(open, filters); }, [open, filters]);
+  if (!operator) return null;
+  const v = OperatorView.operatorView(operator);
+  const color = { live: "#22c55e", idle: "#f59e0b", fault: "#ef4444", backendstale: "#f97316",
+                  offline: "#9ca3af", connecting: "#9ca3af", unreachable: "#9ca3af" }[v.status] || "#9ca3af";
+  const warn = v.status === "fault" || v.status === "backendstale";
+
+  const items = v.history.filter((h) => filters[h.kind]);
+  const pages = Math.max(1, Math.ceil(items.length / OP_PAGE));
+  const pg = Math.min(page, pages - 1);
+  const shown = items.slice(pg * OP_PAGE, pg * OP_PAGE + OP_PAGE);
+  const toggleFilter = (k) => { setFilters((f) => ({ ...f, [k]: !f[k] })); setPage(0); };
+  const chipStyle = (on) => ({
+    fontSize: "0.72em", padding: "2px 9px", borderRadius: "999px", cursor: "pointer",
+    background: on ? "rgba(120,140,160,0.22)" : "transparent",
+    border: "1px solid " + (on ? "rgba(120,140,160,0.55)" : "rgba(120,140,160,0.32)"),
+    color: "inherit", opacity: on ? 1 : 0.55, fontWeight: on ? 600 : 400,
+  });
+  const pagerBtn = (disabled) => ({
+    background: "none", border: "none", color: "inherit", padding: "2px 6px",
+    cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.35 : 1, fontSize: "1em",
+  });
+
+  return (
+    <React.Fragment>
+      {open && (
+        <div onClick={() => setOpen(false)}
+             style={{ position: "fixed", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.30)",
+                      backdropFilter: "blur(1.5px)", WebkitBackdropFilter: "blur(1.5px)",
+                      animation: "opFade 0.15s ease-out" }} />
+      )}
+      <div style={{ position: "fixed", right: "12px", bottom: "12px", zIndex: 50,
+                  display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px",
+                  maxWidth: "min(360px, calc(100vw - 24px))", pointerEvents: "none" }}>
+      {open && (
+        <div className="card" style={{ margin: 0, width: "340px", maxWidth: "calc(100vw - 24px)",
+                                       maxHeight: "70vh", overflowY: "auto", pointerEvents: "auto",
+                                       background: "rgba(20,28,34,0.72)", backdropFilter: "blur(14px)",
+                                       WebkitBackdropFilter: "blur(14px)", boxShadow: "0 14px 44px rgba(0,0,0,0.42)",
+                                       animation: "opRise 0.16s ease-out",
+                                       ...(warn ? { borderColor: color } : {}) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px",
+                        marginBottom: v.fields.length ? "8px" : 0 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 8, background: color, flex: "0 0 auto" }} />
+            <span style={{ fontWeight: warn ? 600 : 400, color: warn ? color : undefined }}>
+              {v.errorText || v.line}
+            </span>
+          </div>
+          {v.fields.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 12px", fontSize: "0.9em" }}>
+              {v.fields.map((f) => (
+                <React.Fragment key={f.label}>
+                  <div style={{ opacity: 0.6 }}>{f.label}</div>
+                  <div>{f.value}</div>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+          {v.history.length > 0 && (
+            <div style={{ marginTop: "10px" }}>
+              <div style={{ opacity: 0.55, fontSize: "0.72em", textTransform: "uppercase",
+                            letterSpacing: "0.06em", marginBottom: "5px" }}>Recent activity</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                {OP_KINDS.map((k) => (
+                  <button key={k.key} type="button" onClick={() => toggleFilter(k.key)} style={chipStyle(filters[k.key])}>
+                    {k.label}
+                  </button>
+                ))}
+              </div>
+              {shown.length === 0 ? (
+                <div style={{ opacity: 0.5, fontSize: "0.85em" }}>No matching activity.</div>
+              ) : shown.map((h, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "12px",
+                                      fontSize: "0.85em", padding: "1px 0" }}>
+                  <span>{h.text}</span>
+                  <span style={{ opacity: 0.5, whiteSpace: "nowrap" }}>{h.when}</span>
+                </div>
+              ))}
+              {items.length > OP_PAGE && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                              marginTop: "8px", fontSize: "0.8em" }}>
+                  <button type="button" disabled={pg <= 0} onClick={() => setPage(pg - 1)} style={pagerBtn(pg <= 0)}>← Newer</button>
+                  <span style={{ opacity: 0.5 }}>{pg + 1} / {pages}</span>
+                  <button type="button" disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)} style={pagerBtn(pg >= pages - 1)}>Older →</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen((o) => !o)}
+              title={open ? "Hide gate operator" : "Gate operator"}
+              aria-label="Gate operator" aria-expanded={open}
+              style={{ pointerEvents: "auto", background: "rgba(120,140,160,0.16)",
+                       border: "1px solid rgba(120,140,160,0.32)", borderRadius: "50%",
+                       width: "40px", height: "40px", display: "flex", alignItems: "center",
+                       justifyContent: "center", cursor: "pointer", color: color,
+                       boxShadow: "0 2px 8px rgba(0,0,0,0.22)" }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="5" x2="3" y2="19" />
+          <line x1="21" y1="5" x2="21" y2="19" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="3" y1="14" x2="21" y2="14" />
+          <line x1="3" y1="19" x2="21" y2="19" />
+          <line x1="3" y1="19" x2="15" y2="9" />
+        </svg>
+      </button>
+      </div>
+    </React.Fragment>
+  );
+}
+
 // GateTab: fetches the raw door list on mount and on each SSE tick, renders a
 // faithful unifi-gate door card per door.
 function GateTab({ streamTick }) {
   const [doors, setDoors] = useState(null);
+  const [operator, setOperator] = useState(null);
   const [error, setError] = useState(false);
 
   const load = useCallback(() => {
     apiFetch("/api/raw/gate")
       .then((r) => r.json())
       .then((d) => {
-        if (Array.isArray(d)) { setDoors(d); setError(false); }
+        if (d && Array.isArray(d.doors)) { setDoors(d.doors); setOperator(d.operator || null); setError(false); }
         else setError(true);
       })
       .catch(() => { /* 401 redirects via apiFetch; keep last good otherwise */ });
@@ -2015,6 +2173,7 @@ function GateTab({ streamTick }) {
   }
   return (
     <div>
+      <OperatorAffordance operator={operator} />
       {doors.map((door) => (
         <GateDoor key={door.id} door={door} onCommand={command} />
       ))}
