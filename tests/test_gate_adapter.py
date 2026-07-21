@@ -1,6 +1,5 @@
 # tests/test_gate_adapter.py
 import responses
-
 from homed.adapters.gate import GateAdapter
 
 DEVICES = [
@@ -102,7 +101,7 @@ def test_raw_attaches_canonical_derived_state():
     # raw() must carry the SAME canonical locked/open the snapshot uses, so the
     # faithful Gate tab consumes one source of truth instead of re-deriving.
     responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
-    doors = {d["id"]: d for d in GateAdapter("http://g", headers={"X-Verified-User": "svc@local"}).raw()}
+    doors = {d["id"]: d for d in GateAdapter("http://g", headers={"X-Verified-User": "svc@local"}).raw()["doors"]}
     # bad-DPS: lock engaged though door_position/status say "open" -> Closed.
     assert doors["front"]["derived"] == {"open": False, "held": False, "mode": None, "label": "Closed"}
     # genuinely unlocked.
@@ -186,3 +185,34 @@ def test_command_aggregate_unlocks_all_doors():
     GateAdapter("http://g").command("gate", {"action": "unlock"})
     unlocked = {c.request.url.rsplit("/", 1)[1] for c in responses.calls if "/unlock/" in c.request.url}
     assert unlocked == {"front", "side", "back", "garage", "legacy"}
+
+
+@responses.activate
+def test_raw_includes_operator_when_available():
+    responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
+    responses.add(
+        responses.GET,
+        "http://g/operator",
+        json={
+            "reachable": True,
+            "online": True,
+            "state": {"model": "I-8"},
+            "error": {"code": "0", "cleared": True, "description": None},
+            "history": [],
+            "updated_at": 1,
+        },
+        status=200,
+    )
+    out = GateAdapter("http://g").raw()
+    assert isinstance(out["doors"], list) and len(out["doors"]) == 5
+    assert out["operator"]["reachable"] is True
+    assert out["operator"]["state"]["model"] == "I-8"
+
+
+@responses.activate
+def test_raw_operator_none_when_endpoint_fails():
+    responses.add(responses.GET, "http://g/devices", json=DEVICES, status=200)
+    responses.add(responses.GET, "http://g/operator", status=502)
+    out = GateAdapter("http://g").raw()
+    assert len(out["doors"]) == 5
+    assert out["operator"] is None
