@@ -879,13 +879,7 @@ function ToggleRow({ control, command, iconNode }) {
 }
 
 function MomentaryRow({ control, command, iconNode }) {
-  const [busy, setBusy] = useState(false);
-  const tap = async () => {
-    if (busy || !control.online) return;
-    setBusy(true);
-    await command(control, { action: "unlock" });
-    setTimeout(() => setBusy(false), 1500);
-  };
+  const [busy, tap] = useOncePulse(control.online, (p) => command(control, p));
   return (
     <React.Fragment>
       <IconBtn control={control} iconNode={iconNode} onClick={tap} disabled={!control.online} />
@@ -1225,12 +1219,27 @@ function gateControlStatus(control) {
   return control.status || "";
 }
 
+// The day/evening boundary for gate holds: quick holds end at 6 PM; from then
+// on the UI switches to evening behavior (Custom picker, now+30 defaults).
+const GATE_DAY_END_HOUR = 18;
+const GATE_DAY_END_HHMM = `${GATE_DAY_END_HOUR}:00`;
+const GATE_DAY_END_LABEL = (() => {   // "6p"
+  const h = GATE_DAY_END_HOUR % 12 || 12;
+  return `${h}${GATE_DAY_END_HOUR >= 12 ? "p" : "a"}`;
+})();
+
+// Local wall-clock "HH:MM" for a Date.
+function hhmm(d) {
+  return String(d.getHours()).padStart(2, "0") + ":" +
+         String(d.getMinutes()).padStart(2, "0");
+}
+
+const gateIsEvening = () => new Date().getHours() >= GATE_DAY_END_HOUR;
+
 // "HH:MM" seed for the <input type=time> picker, in the viewer's timezone.
 function gateHoldSeed(control) {
   if (Number.isFinite(control.expires_at) && control.expires_at > 0) {
-    const d = new Date(control.expires_at * 1000);
-    return String(d.getHours()).padStart(2, "0") + ":" +
-           String(d.getMinutes()).padStart(2, "0");
+    return hhmm(new Date(control.expires_at * 1000));
   }
   const m = (control.status || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (m) {
@@ -1238,35 +1247,83 @@ function gateHoldSeed(control) {
     if (m[3].toUpperCase() === "PM") h += 12;
     return String(h).padStart(2, "0") + ":" + m[2];
   }
-  return "18:00";
+  return GATE_DAY_END_HHMM;
+}
+
+// "HH:MM" for the +30m button: 30 minutes past the current expiry (or past
+// now, when there is no live timed hold), so repeated taps stack +30 each.
+// Midnight wrap is safe — the backend reads a passed HH:MM as tomorrow.
+function gateHoldPlus30(expiresAt) {
+  let base = Date.now();
+  if (Number.isFinite(expiresAt) && expiresAt * 1000 > base) base = expiresAt * 1000;
+  return hhmm(new Date(base + 30 * 60 * 1000));
+}
+
+// Default hold end "HH:MM" for a NEW hold: 6 PM during the day; in the evening,
+// 30 minutes from now — so an evening "hold" never silently rolls over to
+// 6 PM tomorrow.
+function gateDefaultHoldTime() {
+  return gateIsEvening() ? gateHoldPlus30() : GATE_DAY_END_HHMM;
+}
+
+// Shared gate action row — Once | 6p/Custom/Until X | +30m | Forever — used by
+// BOTH the Home summary card (TristateRow) and the Gate tab door card so the
+// two surfaces cannot drift. Slot 2 is state-dependent:
+//   no hold, before 6 PM → "6p"      (one tap holds until 18:00)
+//   no hold, after 6 PM  → "Custom"  (opens the picker sheet, seeded now+30)
+//   timed hold active    → "Until X" (highlighted; tap UNDOES the hold —
+//                                     editing the end time is done by tapping
+//                                     the GateHoldStatus time pill instead)
+// +30m extends a live timed hold from its expiry, or holds now+30 when idle;
+// it is disabled during a Forever hold (it would silently downgrade it).
+// Once-tap pulse shared by both gate cards: fire the unlock and light the
+// button (and any header spinner) for 1.5s of tap feedback.
+function useOncePulse(online, run) {
+  const [busy, setBusy] = useState(false);
+  const once = async () => {
+    if (busy || !online) return;
+    setBusy(true);
+    await run({ action: "unlock" });
+    setTimeout(() => setBusy(false), 1500);
+  };
+  return [busy, once];
+}
+
+function GateActionsRow({ online, mode, heldTime, expiresAt, busy, onOnce, run, openSheet, style }) {
+  const timed = mode === "timed";
+  let slotLabel, slotAction;
+  if (timed) {
+    slotLabel = heldTime ? "Until " + compactTime(heldTime) : "Until…";
+    slotAction = () => run({ action: "stop" });
+  } else if (gateIsEvening()) {
+    slotLabel = "Custom";
+    slotAction = openSheet;
+  } else {
+    slotLabel = GATE_DAY_END_LABEL;
+    slotAction = () => run({ action: "hold_today" });
+  }
+  return (
+    <div className="gate-actions" style={style}>
+      <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!online}
+              onClick={onOnce}>{busy ? <span className="spin" /> : "Once"}</button>
+      <button className={"gate-btn" + (timed ? " held" : "")} disabled={!online}
+              onClick={slotAction}>{slotLabel}</button>
+      <button className="gate-btn" disabled={!online || mode === "forever"}
+              onClick={() => run({ action: "hold_today", end_time: gateHoldPlus30(expiresAt) })}>+30m</button>
+      <button className={"gate-btn" + (mode === "forever" ? " held" : "")} disabled={!online}
+              onClick={() => run({ action: mode === "forever" ? "stop" : "hold_forever" })}>Forever</button>
+    </div>
+  );
 }
 
 function TristateRow({ control, command, iconNode, bare }) {
-  const [busy, setBusy] = useState(false);        // brief tap feedback for the Once pulse
   const [sheet, setSheet] = useState(false);
   const mode = control.mode || null;              // "forever" | "timed" | null
-
-  const once = async () => {
-    if (busy || !control.online) return;
-    setBusy(true);
-    await command(control, { action: "unlock" });
-    setTimeout(() => setBusy(false), 1500);
-  };
-  const forever = () =>
-    command(control, { action: mode === "forever" ? "stop" : "hold_forever" });
-  const timed = () => {
-    // Always open the time picker — even when a hold is already active — so the
-    // user can re-pick (re-set) the end time after the fact. Clearing a hold is
-    // handled by the "Turn off hold" button inside the sheet.
-    setSheet(true);
-  };
+  const [busy, once] = useOncePulse(control.online, (p) => command(control, p));
 
   // All hold-time text comes from the centralized, viewer-local helpers.
   const heldTime = gateControlHoldTime(control);
   const statusText = gateControlStatus(control);
-  const untilLabel = heldTime
-    ? "Until " + compactTime(heldTime)
-    : "Until " + compactTime("6:00 PM");
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1280,14 +1337,10 @@ function TristateRow({ control, command, iconNode, bare }) {
         <div className="ctl-right"><OfflineBadge control={control} /></div>
       </div>
       )}
-      <div className="gate-actions" style={bare ? { marginTop: 0 } : undefined}>
-        <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!control.online}
-                onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
-        <button className={"gate-btn" + (mode === "timed" ? " held" : "")} disabled={!control.online}
-                onClick={timed}>{untilLabel}</button>
-        <button className={"gate-btn" + (mode === "forever" ? " held" : "")} disabled={!control.online}
-                onClick={forever}>Forever</button>
-      </div>
+      <GateActionsRow online={control.online} mode={mode} heldTime={heldTime}
+                      expiresAt={control.expires_at} busy={busy} onOnce={once}
+                      run={(p) => command(control, p)} openSheet={() => setSheet(true)}
+                      style={bare ? { marginTop: 0 } : undefined} />
       {sheet ? (
         <GateHoldSheet control={control} command={command} mode={mode} onClose={() => setSheet(false)} />
       ) : null}
@@ -1310,8 +1363,9 @@ function ReadoutRow({ control, iconNode }) {
 // ── Gate hold-action sheet ─────────────────────────────────────
 function GateHoldSheet({ control, command, mode, onClose }) {
   // Seed the picker from the current "Held until 6:00 PM" status when a timed
-  // hold is active; otherwise default to 6:00 PM (18:00).
-  const seed = () => (mode === "timed" ? gateHoldSeed(control) : "18:00");
+  // hold is active; otherwise use the time-of-day default (6 PM, or now+30m
+  // in the evening).
+  const seed = () => (mode === "timed" ? gateHoldSeed(control) : gateDefaultHoldTime());
   const [time, setTime] = useState(seed);
   const held = mode === "timed" || mode === "forever";
   const run = (payload) => { command(control, payload); onClose(); };
@@ -1850,18 +1904,10 @@ function PumpCard({ pump, system }) {
 // {domain:"gate", id:<door_id>, payload:{action:...}}. Stays live by re-fetching
 // on every SSE frame.
 
-// Default "hold today" end hour (6 PM), mirroring unifi-gate.
-const GATE_DEFAULT_END_HOUR = 18;
-const GATE_DEFAULT_END_DISPLAY = (() => {
-  const h = GATE_DEFAULT_END_HOUR % 12 || 12;
-  return `${h}${GATE_DEFAULT_END_HOUR >= 12 ? "p" : "a"}`;
-})();
-
 // One faithful door card. Mirrors unifi-gate's DoorRow: image/lock-icon slot,
 // name + status line (Locked / Open until X / Open forever / Offline), and
-// the Open button group (Once / Until / Forever) with green-highlighted holds.
+// the shared GateActionsRow (Once / 6p / +30m / Forever) with green-highlighted holds.
 function GateDoor({ door, onCommand }) {
-  const [busy, setBusy] = useState(false);   // Once tap pulse
   const [sheet, setSheet] = useState(false);
   // Fall back to the lock-icon when the proxied door image can't be fetched
   // (unifi-gate cover images need UniFi-OS cookie auth, which may be absent).
@@ -1878,25 +1924,8 @@ function GateDoor({ door, onCommand }) {
     : (isHeld || (door.status || "").toLowerCase().includes("unlock"));
   const online = door.is_online !== false;
 
-  const isPast6pm = new Date().getHours() >= GATE_DEFAULT_END_HOUR;
-
   const run = (payload) => onCommand(door.id, payload);
-  const once = async () => {
-    if (busy || !online) return;
-    setBusy(true);
-    run({ action: "unlock" });
-    setTimeout(() => setBusy(false), 1500);
-  };
-  const onUntil = () => {
-    if (!online) return;
-    if (holdState === "hold_today") run({ action: "stop" });
-    else if (isPast6pm) setSheet(true);
-    else run({ action: "hold_today" });
-  };
-  const onForever = () => {
-    if (!online) return;
-    run({ action: holdState === "hold_forever" ? "stop" : "hold_forever" });
-  };
+  const [busy, once] = useOncePulse(online, run);
 
   // Control-like object + mode consumed by the shared GateHoldStatus/GateHoldSheet.
   const sheetMode = holdState === "hold_today" ? "timed" : (holdState === "hold_forever" ? "forever" : null);
@@ -1932,10 +1961,6 @@ function GateDoor({ door, onCommand }) {
     statusNode = derived.label || "Closed";
   }
 
-  const untilLabel = holdState === "hold_today" && holdTime
-    ? `Until ${compactTime(holdTime)}`
-    : (isPast6pm ? "Until…" : `Until ${GATE_DEFAULT_END_DISPLAY}`);
-
   const hasImage = !!door.imageUrl && !imgFailed;
 
   return (
@@ -1959,14 +1984,9 @@ function GateDoor({ door, onCommand }) {
       </div>
 
       <div className="gate-open-label">Open</div>
-      <div className="gate-actions">
-        <button className={"gate-btn" + (busy ? " busy" : "")} disabled={!online}
-                onClick={once}>{busy ? <span className="spin" /> : "Once"}</button>
-        <button className={"gate-btn" + (holdState === "hold_today" ? " held" : "")}
-                disabled={!online} onClick={onUntil}>{untilLabel}</button>
-        <button className={"gate-btn" + (holdState === "hold_forever" ? " held" : "")}
-                disabled={!online} onClick={onForever}>Forever</button>
-      </div>
+      <GateActionsRow online={online} mode={sheetMode} heldTime={holdTime}
+                      expiresAt={door.expires_at} busy={busy} onOnce={once}
+                      run={run} openSheet={() => setSheet(true)} />
 
       {sheet ? (
         <GateHoldSheet control={sheetControl} mode={sheetMode}
