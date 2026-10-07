@@ -46,7 +46,7 @@ single tabbed web app served from this process.
 | `homed/model.py`      | Shared data shapes |
 | `homed/config.py`     | Loads `home.toml` |
 | `static/index.html`   | Single-page UI |
-| `scripts/deploy.sh`   | Deploy to an Incus container |
+| `scripts/deploy.sh`   | Legacy/manual Incus container deploy helper |
 | `tests/`              | pytest suite |
 
 ## Configuration
@@ -95,9 +95,14 @@ python -m homed --config home.toml   # serves on [web].bind (default 0.0.0.0:809
 
 ## Deploy
 
-```bash
-./scripts/deploy.sh home   # create/refresh an Incus container and restart the service
-```
+Production releases are driven from the **private instance repository**. A committed
+source revision is first installed into a separate Incus development container;
+after it passes there, the instance release command builds a private image and
+deploys it to the production Kubernetes cluster. The instance repository owns
+the real configuration, image pins, credentials, and operational runbooks.
+
+`scripts/deploy.sh` remains a manual Incus helper for a named container. Running
+it against a legacy container does not update Kubernetes production.
 
 ## Design docs
 
